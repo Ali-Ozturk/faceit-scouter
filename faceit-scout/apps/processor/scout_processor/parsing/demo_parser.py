@@ -6,7 +6,7 @@ from pathlib import Path
 from scout_processor.analysis.match_summary import internal_match_fingerprint
 from scout_processor.errors.exceptions import ErrorCode, ProcessingError
 from scout_processor.ingestion.checksum import sha256_file
-from scout_processor.parsing.parser_models import ParsedDemo, ParsedKillEvent, ParsedPlayer, ParsedRound, ParsedTeam
+from scout_processor.parsing.parser_models import ParsedDemo, ParsedKillEvent, ParsedPlayer, ParsedPositionSample, ParsedRound, ParsedTeam
 
 FACEIT_UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
@@ -75,6 +75,7 @@ class DemoParser:
             teams = self._build_teams(players)
             rounds = self._parse_rounds(parser, match_start_tick)
             kills = self._apply_scoreboard_stats(parser, players, match_start_tick)
+            position_samples = self._parse_position_samples(parser, players, rounds)
             self._apply_team_scores(teams, rounds)
         except Exception as exc:
             raise ProcessingError(ErrorCode.PARSER_FAILED, str(exc)) from exc
@@ -95,6 +96,7 @@ class DemoParser:
             team_2_score=team_2_score,
             rounds=rounds,
             kills=kills,
+            position_samples=position_samples,
         )
 
     def _parse_players(self, parser, match_start_tick: int = 0) -> list[ParsedPlayer]:
@@ -205,6 +207,7 @@ class DemoParser:
             if tick < match_start_tick or not has_value(winner_side):
                 continue
             round_number = len(rounds) + 1
+            started_at = self._round_start_tick(parser, tick, match_start_tick)
             winner_team_number = self._winner_team_number(str(winner_side), round_number)
             rounds.append(
                 ParsedRound(
@@ -213,10 +216,22 @@ class DemoParser:
                     winner_team_number=winner_team_number,
                     winner_side=str(winner_side),
                     reason=str(row["reason"]) if has_value(row.get("reason")) else None,
+                    started_at_demo_time=float(started_at) if started_at else None,
                     ended_at_demo_time=float(tick),
                 )
             )
         return rounds
+
+    def _round_start_tick(self, parser, end_tick: int, match_start_tick: int) -> int | None:
+        try:
+            starts = [
+                int(row["tick"])
+                for row in dataframe_to_rows(parser.parse_event("round_freeze_end"))
+                if has_value(row.get("tick")) and int(row["tick"]) >= match_start_tick and int(row["tick"]) < end_tick
+            ]
+            return max(starts) if starts else match_start_tick
+        except Exception:
+            return match_start_tick
 
     def _winner_team_number(self, winner_side: str, round_number: int) -> int | None:
         side = winner_side.upper()
@@ -303,3 +318,63 @@ class DemoParser:
             player.damage = player_stats["damage"]
 
         return kill_events
+
+    def _parse_position_samples(
+        self,
+        parser,
+        players: list[ParsedPlayer],
+        rounds: list[ParsedRound],
+    ) -> list[ParsedPositionSample]:
+        steam_ids = {player.steam_id for player in players}
+        selected_rounds = [round_result for round_result in rounds if round_result.round_number in (1, 13)]
+        tick_to_round: dict[int, ParsedRound] = {}
+        for round_result in selected_rounds:
+            if round_result.started_at_demo_time is None or round_result.ended_at_demo_time is None:
+                continue
+            start = int(round_result.started_at_demo_time)
+            end = int(round_result.ended_at_demo_time)
+            if end <= start:
+                continue
+            step = 6
+            ticks = sorted(set([start, *range(start + step, end, step), end]))
+            for tick in ticks:
+                tick_to_round[tick] = round_result
+
+        if not tick_to_round:
+            return []
+
+        try:
+            rows = dataframe_to_rows(
+                parser.parse_ticks(
+                    ["steamid", "name", "team_name", "X", "Y", "Z", "is_alive"],
+                    ticks=sorted(tick_to_round),
+                )
+            )
+        except Exception:
+            return []
+
+        samples: list[ParsedPositionSample] = []
+        for row in rows:
+            steam_id = clean_steam_id(row.get("steamid"))
+            tick = int(row.get("tick") or 0)
+            round_result = tick_to_round.get(tick)
+            if not steam_id or steam_id not in steam_ids or not round_result:
+                continue
+            if not has_value(row.get("X")) or not has_value(row.get("Y")):
+                continue
+            start_tick = int(round_result.started_at_demo_time or tick)
+            samples.append(
+                ParsedPositionSample(
+                    round_number=round_result.round_number,
+                    side="T" if str(row.get("team_name")).upper() in ("T", "TERRORIST") else "CT",
+                    tick=tick,
+                    seconds=round((tick - start_tick) / 64, 2),
+                    steam_id=steam_id,
+                    player_name=str(row.get("name") or steam_id),
+                    x=float(row["X"]),
+                    y=float(row["Y"]),
+                    z=float(row["Z"]) if has_value(row.get("Z")) else None,
+                    alive=bool(row.get("is_alive")) if has_value(row.get("is_alive")) else None,
+                )
+            )
+        return samples

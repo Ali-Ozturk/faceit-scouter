@@ -187,6 +187,24 @@ export const grenadeEvent = pgTable("grenade_event", {
   endZ: doublePrecision("end_z"),
 });
 
+export const roundPositionSample = pgTable("round_position_sample", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  matchId: uuid("match_id").notNull().references(() => csMatch.id, { onDelete: "cascade" }),
+  matchTeamId: uuid("match_team_id").notNull().references(() => matchTeam.id, { onDelete: "cascade" }),
+  playerId: uuid("player_id").notNull().references(() => player.id, { onDelete: "cascade" }),
+  roundNumber: integer("round_number").notNull(),
+  side: text("side").notNull(),
+  tick: integer("tick").notNull(),
+  seconds: doublePrecision("seconds").notNull(),
+  playerName: text("player_name").notNull(),
+  x: doublePrecision("x").notNull(),
+  y: doublePrecision("y").notNull(),
+  z: doublePrecision("z"),
+  alive: boolean("alive"),
+}, (table) => ({
+  sampleUnique: unique("round_position_sample_unique").on(table.matchId, table.playerId, table.roundNumber, table.tick),
+}));
+
 export const teamLineup = pgTable("team_lineup", {
   id: uuid("id").defaultRandom().primaryKey(),
   fingerprint: text("fingerprint").notNull().unique(),

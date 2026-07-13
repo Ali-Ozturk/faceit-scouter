@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import structlog
@@ -17,9 +18,11 @@ logger = structlog.get_logger(__name__)
 async def worker(
     name: str,
     queue: asyncio.Queue[Path],
+    queued_paths: set[Path],
     settings: Settings,
     imports: ImportRepository,
     session_factory,
+    parse_executor,
 ) -> None:
     while True:
         path = await queue.get()
@@ -35,8 +38,12 @@ async def worker(
             if not stable:
                 logger.warning("file_never_stabilized", worker=name, file_name=path.name)
                 continue
-            await process_file(path, settings, imports, session_factory)
+            if not path.exists():
+                continue
+            logger.info("worker_processing_file", worker=name, file_name=path.name)
+            await process_file(path, settings, imports, session_factory, parse_executor, name)
         finally:
+            queued_paths.discard(path.resolve())
             queue.task_done()
 
 
@@ -47,11 +54,13 @@ async def run() -> None:
     session_factory = make_session_factory(settings)
     imports = ImportRepository(session_factory)
     queue: asyncio.Queue[Path] = asyncio.Queue(maxsize=max(1, settings.processor_concurrency * 4))
+    queued_paths: set[Path] = set()
+    parse_executor = ProcessPoolExecutor(max_workers=settings.processor_concurrency)
 
-    await enqueue_existing(settings, queue)
-    tasks = [asyncio.create_task(watch_incoming(settings, queue, imports))]
+    await enqueue_existing(settings, queue, queued_paths)
+    tasks = [asyncio.create_task(watch_incoming(settings, queue, imports, queued_paths))]
     for index in range(settings.processor_concurrency):
-        tasks.append(asyncio.create_task(worker(f"worker-{index + 1}", queue, settings, imports, session_factory)))
+        tasks.append(asyncio.create_task(worker(f"worker-{index + 1}", queue, queued_paths, settings, imports, session_factory, parse_executor)))
     logger.info("processor_started", incoming_directory=str(settings.incoming_directory), concurrency=settings.processor_concurrency)
     await asyncio.gather(*tasks)
 

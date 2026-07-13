@@ -13,6 +13,7 @@ from scout_processor.database.models import (
     MatchTeamLineup,
     Player,
     Round,
+    RoundPositionSample,
     TeamLineup,
     TeamLineupMember,
 )
@@ -53,6 +54,7 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
             session.execute(delete(KillEvent).where(KillEvent.match_id == match.id))
             session.execute(delete(BombEvent).where(BombEvent.match_id == match.id))
             session.execute(delete(GrenadeEvent).where(GrenadeEvent.match_id == match.id))
+            session.execute(delete(RoundPositionSample).where(RoundPositionSample.match_id == match.id))
             session.execute(delete(Round).where(Round.match_id == match.id))
             session.execute(delete(MatchPlayer).where(MatchPlayer.match_id == match.id))
             session.execute(delete(MatchTeamLineup).where(MatchTeamLineup.match_team_id.in_(existing_team_ids)))
@@ -169,6 +171,34 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
                 thrower_player_id=player.id if player else None,
                 grenade_type=event.grenade_type,
                 demo_time=event.demo_time,
+            )
+        )
+
+    player_team_by_steam_id = {
+        parsed_player.steam_id: teams_by_number[parsed_team.team_number].id
+        for parsed_team in parsed.teams
+        for parsed_player in parsed_team.players
+        if parsed_team.team_number in teams_by_number
+    }
+    for sample in parsed.position_samples:
+        player = players_by_steam_id.get(sample.steam_id)
+        match_team_id = player_team_by_steam_id.get(sample.steam_id)
+        if not player or not match_team_id:
+            continue
+        session.add(
+            RoundPositionSample(
+                match_id=match.id,
+                match_team_id=match_team_id,
+                player_id=player.id,
+                round_number=sample.round_number,
+                side=sample.side,
+                tick=sample.tick,
+                seconds=sample.seconds,
+                player_name=sample.player_name,
+                x=sample.x,
+                y=sample.y,
+                z=sample.z,
+                alive=sample.alive,
             )
         )
 

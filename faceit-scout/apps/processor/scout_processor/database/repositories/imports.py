@@ -2,10 +2,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from scout_processor.database.models import CsMatch, ImportedDemo, ImportStatus
+from scout_processor.database.models import CsMatch, ImportedDemo, ImportStatus, RoundPositionSample
 
 
 class ImportRepository:
@@ -76,12 +76,15 @@ class ImportRepository:
             row = session.scalar(
                 select(ImportedDemo)
                 .join(CsMatch, ImportedDemo.parsed_match_id == CsMatch.id)
+                .join(RoundPositionSample, RoundPositionSample.match_id == CsMatch.id)
                 .where(
                     ImportedDemo.sha256_checksum == checksum,
                     ImportedDemo.status == ImportStatus.COMPLETED,
                     CsMatch.team_1_score.is_not(None),
                     CsMatch.team_2_score.is_not(None),
                 )
+                .group_by(ImportedDemo.id)
+                .having(func.count(RoundPositionSample.id) >= 1000)
             )
             if row:
                 session.expunge(row)

@@ -37,6 +37,7 @@ services:
       FAILED_DIRECTORY: /data/failed
       DECOMPRESSED_DIRECTORY: /data/decompressed
       TEMPORARY_DIRECTORY: /data/temporary
+      PROCESSOR_CONCURRENCY: ${PROCESSOR_CONCURRENCY:-3}
     volumes:
       - ./data:/data
     depends_on:

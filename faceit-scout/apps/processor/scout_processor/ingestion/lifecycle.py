@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import Executor
 from pathlib import Path
 
 import structlog
@@ -17,7 +18,18 @@ from scout_processor.parsing.demo_parser import DemoParser, extract_faceit_match
 logger = structlog.get_logger(__name__)
 
 
-async def process_file(path: Path, settings: Settings, imports: ImportRepository, session_factory: sessionmaker[Session]) -> None:
+def parse_demo_in_process(demo_path: str, checksum: str):
+    return DemoParser().parse(Path(demo_path), checksum)
+
+
+async def process_file(
+    path: Path,
+    settings: Settings,
+    imports: ImportRepository,
+    session_factory: sessionmaker[Session],
+    parse_executor: Executor | None = None,
+    worker_name: str | None = None,
+) -> None:
     imported = imports.create_or_get(path)
     claimed_path: Path | None = None
     demo_path: Path | None = None
@@ -45,7 +57,9 @@ async def process_file(path: Path, settings: Settings, imports: ImportRepository
         demo_path = await asyncio.to_thread(decompress_if_needed, claimed_path, settings.decompressed_directory)
 
         imports.update_status(imported.id, ImportStatus.PARSING, parser_name=settings.parser_name, parser_version=parser_version(), schema_version=settings.schema_version)
-        parsed = await asyncio.to_thread(DemoParser().parse, demo_path, checksum)
+        logger.info("parse_started", worker=worker_name, import_id=str(imported.id), file_name=path.name)
+        parsed = await asyncio.get_running_loop().run_in_executor(parse_executor, parse_demo_in_process, str(demo_path), checksum)
+        logger.info("parse_finished", worker=worker_name, import_id=str(imported.id), file_name=path.name, map_name=parsed.map_name)
 
         imports.update_status(imported.id, ImportStatus.PERSISTING)
         with session_factory() as session:

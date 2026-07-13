@@ -17,6 +17,7 @@ Implemented:
 - File filtering, startup scan, watchfiles watcher, stability checks, atomic claiming, checksum creation, duplicate detection, decompression, success/failure movement.
 - SQLAlchemy persistence models mirroring the Drizzle schema.
 - Parser adapter boundary around `demoparser2`.
+- Configurable parallel processor workers with `PROCESSOR_CONCURRENCY`.
 - Exact lineup fingerprinting and lineup match grouping.
 - Dashboard, imports, lineups, team-map, match-detail pages, and JSON API routes.
 - Unit tests for ingestion helpers and decompression.
@@ -77,6 +78,8 @@ cd apps/processor
 pip install -e .[dev]
 python -m scout_processor.main
 ```
+
+Set `PROCESSOR_CONCURRENCY=3` or higher to parse several demos in parallel. Higher values are faster for batches, but each parser worker can use substantial CPU and memory.
 
 ## Tests
 
