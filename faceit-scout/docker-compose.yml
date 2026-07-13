@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-faceit_scout}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-faceit_scout}
+      POSTGRES_DB: ${POSTGRES_DB:-faceit_scout}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: ./apps/web
+    environment:
+      DATABASE_URL: postgresql://faceit_scout:faceit_scout@postgres:5432/faceit_scout
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  processor:
+    build:
+      context: ./apps/processor
+    environment:
+      DATABASE_URL: postgresql://faceit_scout:faceit_scout@postgres:5432/faceit_scout
+      INCOMING_DIRECTORY: /data/incoming
+      PROCESSING_DIRECTORY: /data/processing
+      COMPLETED_DIRECTORY: /data/completed
+      FAILED_DIRECTORY: /data/failed
+      DECOMPRESSED_DIRECTORY: /data/decompressed
+      TEMPORARY_DIRECTORY: /data/temporary
+    volumes:
+      - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

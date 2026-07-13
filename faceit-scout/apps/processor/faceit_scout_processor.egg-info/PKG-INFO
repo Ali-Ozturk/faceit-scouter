@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: faceit-scout-processor
+Version: 0.1.0
+Requires-Python: >=3.12
+Requires-Dist: demoparser2>=0.39.0
+Requires-Dist: polars>=1.14.0
+Requires-Dist: sqlalchemy>=2.0.36
+Requires-Dist: psycopg[binary]>=3.2.3
+Requires-Dist: pydantic>=2.9.2
+Requires-Dist: pydantic-settings>=2.6.1
+Requires-Dist: watchfiles>=0.24.0
+Requires-Dist: zstandard>=0.23.0
+Requires-Dist: structlog>=24.4.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.3.3; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.24.0; extra == "dev"
+Requires-Dist: ruff>=0.7.4; extra == "dev"
