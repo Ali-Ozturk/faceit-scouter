@@ -1,4 +1,5 @@
 import asyncio
+import errno
 import hashlib
 import uuid
 from pathlib import Path
@@ -7,6 +8,7 @@ import pytest
 
 from scout_processor.analysis.lineup import exact_lineup_fingerprint
 from scout_processor.ingestion.checksum import sha256_file
+from scout_processor.ingestion.file_claiming import claim_file
 from scout_processor.parsing.demo_parser import extract_faceit_match_id
 from scout_processor.watcher.file_stability import is_supported_demo, wait_until_stable
 
@@ -30,6 +32,27 @@ def test_checksum():
     path = workdir() / "sample.dem"
     path.write_bytes(b"abc")
     assert sha256_file(path) == hashlib.sha256(b"abc").hexdigest()
+
+
+def test_claim_file_falls_back_for_cross_device_move(monkeypatch):
+    root = workdir()
+    incoming = root / "incoming"
+    processing = root / "processing"
+    incoming.mkdir()
+    processing.mkdir()
+    source = incoming / "sample.dem.zst"
+    source.write_bytes(b"demo")
+
+    def raise_cross_device(_self, _target):
+        raise OSError(errno.EXDEV, "Invalid cross-device link")
+
+    monkeypatch.setattr(Path, "replace", raise_cross_device)
+
+    claimed = claim_file(source, processing)
+
+    assert claimed == processing / "sample.dem.zst"
+    assert claimed.read_bytes() == b"demo"
+    assert not source.exists()
 
 
 def test_faceit_match_id_extraction():

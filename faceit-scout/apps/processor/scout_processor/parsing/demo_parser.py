@@ -1,5 +1,6 @@
 import importlib.metadata
 import math
+import os
 import re
 from pathlib import Path
 
@@ -74,7 +75,9 @@ class DemoParser:
             players = self._parse_players(parser, match_start_tick)
             teams = self._build_teams(players)
             rounds = self._parse_rounds(parser, match_start_tick)
-            kills = self._apply_scoreboard_stats(parser, players, match_start_tick)
+            kills = []
+            if os.getenv("PARSE_FULL_SCOREBOARD", "false").lower() == "true":
+                kills = self._apply_scoreboard_stats(parser, players, match_start_tick)
             position_samples = self._parse_position_samples(parser, players, rounds)
             self._apply_team_scores(teams, rounds)
         except Exception as exc:
@@ -200,6 +203,15 @@ class DemoParser:
         except Exception:
             return []
 
+        try:
+            freeze_end_ticks = [
+                int(row["tick"])
+                for row in dataframe_to_rows(parser.parse_event("round_freeze_end"))
+                if has_value(row.get("tick")) and int(row["tick"]) >= match_start_tick
+            ]
+        except Exception:
+            freeze_end_ticks = []
+
         rounds: list[ParsedRound] = []
         for row in rows:
             tick = int(row.get("tick") or 0)
@@ -207,7 +219,7 @@ class DemoParser:
             if tick < match_start_tick or not has_value(winner_side):
                 continue
             round_number = len(rounds) + 1
-            started_at = self._round_start_tick(parser, tick, match_start_tick)
+            started_at = self._round_start_tick(freeze_end_ticks, tick, match_start_tick)
             winner_team_number = self._winner_team_number(str(winner_side), round_number)
             rounds.append(
                 ParsedRound(
@@ -222,16 +234,9 @@ class DemoParser:
             )
         return rounds
 
-    def _round_start_tick(self, parser, end_tick: int, match_start_tick: int) -> int | None:
-        try:
-            starts = [
-                int(row["tick"])
-                for row in dataframe_to_rows(parser.parse_event("round_freeze_end"))
-                if has_value(row.get("tick")) and int(row["tick"]) >= match_start_tick and int(row["tick"]) < end_tick
-            ]
-            return max(starts) if starts else match_start_tick
-        except Exception:
-            return match_start_tick
+    def _round_start_tick(self, freeze_end_ticks: list[int], end_tick: int, match_start_tick: int) -> int | None:
+        starts = [tick for tick in freeze_end_ticks if tick < end_tick]
+        return max(starts) if starts else match_start_tick
 
     def _winner_team_number(self, winner_side: str, round_number: int) -> int | None:
         side = winner_side.upper()
@@ -326,7 +331,7 @@ class DemoParser:
         rounds: list[ParsedRound],
     ) -> list[ParsedPositionSample]:
         steam_ids = {player.steam_id for player in players}
-        selected_rounds = [round_result for round_result in rounds if round_result.round_number in (1, 13)]
+        selected_rounds = self._first_rounds_by_side(rounds)
         tick_to_round: dict[int, ParsedRound] = {}
         for round_result in selected_rounds:
             if round_result.started_at_demo_time is None or round_result.ended_at_demo_time is None:
@@ -378,3 +383,8 @@ class DemoParser:
                 )
             )
         return samples
+
+    def _first_rounds_by_side(self, rounds: list[ParsedRound]) -> list[ParsedRound]:
+        first_t = next((round_result for round_result in rounds if round_result.round_number <= 12), None)
+        first_ct = next((round_result for round_result in rounds if round_result.round_number > 12), None)
+        return [round_result for round_result in (first_t, first_ct) if round_result]

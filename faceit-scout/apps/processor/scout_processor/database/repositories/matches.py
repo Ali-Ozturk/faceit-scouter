@@ -180,27 +180,30 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
         for parsed_player in parsed_team.players
         if parsed_team.team_number in teams_by_number
     }
+    sample_rows = []
     for sample in parsed.position_samples:
         player = players_by_steam_id.get(sample.steam_id)
         match_team_id = player_team_by_steam_id.get(sample.steam_id)
         if not player or not match_team_id:
             continue
-        session.add(
-            RoundPositionSample(
-                match_id=match.id,
-                match_team_id=match_team_id,
-                player_id=player.id,
-                round_number=sample.round_number,
-                side=sample.side,
-                tick=sample.tick,
-                seconds=sample.seconds,
-                player_name=sample.player_name,
-                x=sample.x,
-                y=sample.y,
-                z=sample.z,
-                alive=sample.alive,
-            )
+        sample_rows.append(
+            {
+                "match_id": match.id,
+                "match_team_id": match_team_id,
+                "player_id": player.id,
+                "round_number": sample.round_number,
+                "side": sample.side,
+                "tick": sample.tick,
+                "seconds": sample.seconds,
+                "player_name": sample.player_name,
+                "x": sample.x,
+                "y": sample.y,
+                "z": sample.z,
+                "alive": sample.alive,
+            }
         )
+    if sample_rows:
+        session.bulk_insert_mappings(RoundPositionSample, sample_rows)
 
     imported_demo.parsed_match_id = match.id
     return match

@@ -2,6 +2,7 @@
 node_modules/
 .next/
 dist/
+packages/
 __pycache__/
 .pytest_cache/
 .ruff_cache/

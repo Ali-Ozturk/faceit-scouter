@@ -1,0 +1,39 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { createAnalysis } from "@/db/queries/analyses";
+import { createFaceitClientFromEnv, FaceitHttpError } from "@/lib/faceit/client";
+import { discoverFaceitMatches, normalizeMapName } from "@/lib/faceit/discovery";
+
+const createAnalysisSchema = z.object({
+  faceitMatchId: z.string().trim().min(1),
+  requestingPlayerFaceitId: z.string().trim().min(1),
+  selectedMap: z.string().trim().optional().nullable(),
+});
+
+export async function POST(request: Request) {
+  const parsed = createAnalysisSchema.safeParse(await request.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid analysis request." }, { status: 400 });
+  }
+
+  try {
+    const input = {
+      faceitMatchId: parsed.data.faceitMatchId,
+      requestingPlayerFaceitId: parsed.data.requestingPlayerFaceitId,
+      selectedMap: normalizeMapName(parsed.data.selectedMap),
+    };
+    const result = await discoverFaceitMatches(createFaceitClientFromEnv(), input);
+    const stored = await createAnalysis(input, result);
+    return NextResponse.json(stored, { status: 201 });
+  } catch (error) {
+    const status = error instanceof FaceitHttpError ? faceitStatusToHttpStatus(error.status) : 500;
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Analysis failed." }, { status });
+  }
+}
+
+function faceitStatusToHttpStatus(status: number) {
+  if (status === 401 || status === 403) return 502;
+  if (status === 404) return 404;
+  if (status === 429) return 429;
+  return status >= 500 ? 502 : 400;
+}

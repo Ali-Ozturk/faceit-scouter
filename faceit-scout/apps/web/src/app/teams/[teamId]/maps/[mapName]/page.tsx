@@ -18,6 +18,38 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
         <p className="mt-2 text-slate-600">{data.matches.length} processed matches with at least 4 shared players on this map.</p>
       </div>
       <section className="space-y-5">
+        <div className="space-y-3 rounded border border-slate-300 bg-white p-4">
+          <div>
+            <h2 className="text-xl font-semibold">Merged opening-round tendencies</h2>
+            <p className="mt-1 text-sm text-slate-600">All matching demos combined, split by the team's first T and first CT side rounds.</p>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <RoundPathPreview
+              title="Merged first T rounds"
+              mapName={data.mapName}
+              samples={data.samples.filter((sample) => sample.side === "T").map((sample) => ({
+                ...sample,
+                trackId: `${sample.matchTeamId}-${sample.playerName}`,
+                colorKey: sample.matchTeamId,
+                markerLabel: String(data.matches.findIndex((match) => match.matchTeamId === sample.matchTeamId) + 1),
+                playerName: `${sample.playerName} · ${data.matches.findIndex((match) => match.matchTeamId === sample.matchTeamId) + 1}`,
+              }))}
+              maxLegendItems={12}
+            />
+            <RoundPathPreview
+              title="Merged first CT rounds"
+              mapName={data.mapName}
+              samples={data.samples.filter((sample) => sample.side === "CT").map((sample) => ({
+                ...sample,
+                trackId: `${sample.matchTeamId}-${sample.playerName}`,
+                colorKey: sample.matchTeamId,
+                markerLabel: String(data.matches.findIndex((match) => match.matchTeamId === sample.matchTeamId) + 1),
+                playerName: `${sample.playerName} · ${data.matches.findIndex((match) => match.matchTeamId === sample.matchTeamId) + 1}`,
+              }))}
+              maxLegendItems={12}
+            />
+          </div>
+        </div>
         <h2 className="text-xl font-semibold">First-round previews</h2>
         {data.matches.map((match) => {
           const matchSamples = data.samples.filter((sample) => sample.matchTeamId === match.matchTeamId);

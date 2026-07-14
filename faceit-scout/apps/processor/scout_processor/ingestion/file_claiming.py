@@ -1,4 +1,5 @@
 import shutil
+import errno
 from pathlib import Path
 
 
@@ -15,7 +16,12 @@ def safe_destination(directory: Path, file_name: str) -> Path:
 
 def claim_file(source: Path, processing_directory: Path) -> Path:
     destination = safe_destination(processing_directory, source.name)
-    return source.replace(destination)
+    try:
+        return source.replace(destination)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+        return Path(shutil.move(str(source), str(destination)))
 
 
 def move_file(source: Path, directory: Path) -> Path:

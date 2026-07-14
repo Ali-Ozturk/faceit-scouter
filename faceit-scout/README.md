@@ -6,6 +6,7 @@ This repository contains:
 
 - `apps/web`: Next.js App Router frontend and read-only API routes.
 - `apps/processor`: Python worker that watches demo folders, decompresses `.dem.zst`, parses demos through a demoparser2 adapter, and persists results.
+- `apps/extension`: Manifest V3 Chrome extension for discovering and downloading FACEIT demos through the logged-in browser session.
 - `data`: local lifecycle folders for incoming, processing, completed, failed, decompressed, and temporary files.
 
 ## Current MVP Status
@@ -33,6 +34,8 @@ Copy `.env.example` to `.env` for local development if you want to override defa
 ```powershell
 Copy-Item .env.example .env
 ```
+
+Set `FACEIT_API_TOKEN` in `.env` to enable server-side FACEIT Data API match discovery.
 
 ## Mode A: Everything In Docker
 
@@ -90,6 +93,13 @@ npm run build
 ```
 
 ```powershell
+cd apps/extension
+npm test
+npm run lint
+npm run build
+```
+
+```powershell
 cd apps/processor
 python -m pytest
 ```
@@ -124,9 +134,54 @@ data/temporary     local scratch space
 
 The processor ignores hidden files, `.crdownload`, `.tmp`, `.part`, and unsupported extensions.
 
-## Future Chrome Extension Integration
+## FACEIT Match Discovery
 
-The future extension should download legitimate FACEIT demos into the configured incoming folder, preferably named:
+Open `/analyses` in the web app to enter a current FACEIT lobby or match ID, your FACEIT player ID, and optionally a selected map. The backend finds historical matchrooms where at least four current opponents played together and stores the analysis for later retrieval.
+
+Demo downloading remains manual: open the returned FACEIT matchroom links, download the demo, and place the `.dem` or `.dem.zst` file in `data/incoming`.
+
+## Chrome Extension
+
+The Chrome extension uses the local backend for opponent analysis and the user's existing logged-in FACEIT browser session for demo downloads. It does not store or send FACEIT cookies, session tokens, or the backend FACEIT API token.
+
+Build and load it locally:
+
+```powershell
+cd apps/extension
+npm install
+npm run build
+```
+
+Then open `chrome://extensions`, enable Developer mode, choose Load unpacked, and select:
+
+```text
+apps/extension/dist
+```
+
+In the extension popup, configure:
+
+```text
+Backend URL: http://localhost:3000
+FACEIT player ID: your FACEIT player ID
+Download subdirectory: FaceitScout/incoming
+```
+
+Chrome downloads are saved relative to the browser's configured download folder. With the default subdirectory on Windows, configure the processor to watch:
+
+```text
+C:\Users\<user>\Downloads\FaceitScout\incoming
+```
+
+Open a current FACEIT CS2 matchroom, open the extension, detect or enter the current match ID, optionally enter the map, and run analysis. The extension skips already processed matches by default, opens official FACEIT matchrooms for demo retrieval, downloads available demos as `{faceit-match-id}.dem.zst`, and leaves the matchroom open with an actionable fallback when automatic retrieval is unavailable.
+
+Create a zip package after building:
+
+```powershell
+cd apps/extension
+npm run package
+```
+
+Downloaded demos should be named:
 
 ```text
 {faceit-match-id}.dem.zst

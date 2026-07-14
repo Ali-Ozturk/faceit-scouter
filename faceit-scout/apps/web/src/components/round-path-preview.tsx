@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 
 type PositionSample = {
+  trackId?: string;
+  colorKey?: string;
+  markerLabel?: string;
   side: string;
   seconds: number;
   playerName: string;
@@ -134,17 +137,31 @@ export function RoundPathPreview({
   title,
   mapName,
   samples,
+  maxLegendItems = 10,
 }: {
   title: string;
   mapName: string;
   samples: PositionSample[];
+  maxLegendItems?: number;
 }) {
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
 
   const ordered = useMemo(() => [...samples].sort((a, b) => a.seconds - b.seconds), [samples]);
   const duration = ordered.length ? Math.max(...ordered.map((sample) => sample.seconds)) : 0;
-  const players = useMemo(() => [...new Set(ordered.map((sample) => sample.playerName))].sort(), [ordered]);
+  const allTracks = useMemo(() => {
+    const byTrack = new Map<string, { label: string; colorKey: string }>();
+    for (const sample of ordered) {
+      const id = sample.trackId ?? sample.playerName;
+      byTrack.set(id, { label: sample.playerName, colorKey: sample.colorKey ?? id });
+    }
+    return [...byTrack.entries()]
+      .map(([id, value]) => ({ id, ...value }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [ordered]);
+  const legendTracks = useMemo(() => allTracks.slice(0, maxLegendItems), [allTracks, maxLegendItems]);
+  const colorKeys = useMemo(() => [...new Set(allTracks.map((track) => track.colorKey))], [allTracks]);
+  const colorForTrack = (track: { colorKey: string }) => colors[Math.max(0, colorKeys.indexOf(track.colorKey)) % colors.length];
   const radar = useMemo(() => (ordered.length ? resolveRadar(mapName, ordered) : undefined), [mapName, ordered]);
 
   useEffect(() => {
@@ -171,9 +188,9 @@ export function RoundPathPreview({
   }
 
   const visible = ordered.filter((sample) => sample.seconds <= time);
-  const currentByPlayer = players.map((playerName) => {
-    const playerSamples = visible.filter((sample) => sample.playerName === playerName);
-    return playerSamples[playerSamples.length - 1] ?? ordered.find((sample) => sample.playerName === playerName);
+  const currentByTrack = allTracks.map((track) => {
+    const playerSamples = visible.filter((sample) => (sample.trackId ?? sample.playerName) === track.id);
+    return playerSamples[playerSamples.length - 1] ?? ordered.find((sample) => (sample.trackId ?? sample.playerName) === track.id);
   });
 
   return (
@@ -189,18 +206,18 @@ export function RoundPathPreview({
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,#334155_1px,transparent_1px)] [background-size:32px_32px]" />
         )}
         <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${radar.imageSize} ${radar.imageSize}`}>
-          {players.map((playerName, index) => {
-            const playerSamples = visible.filter((sample) => sample.playerName === playerName);
+          {allTracks.map((track, index) => {
+            const playerSamples = visible.filter((sample) => (sample.trackId ?? sample.playerName) === track.id);
             const points = playerSamples.map((sample) => {
               const point = toRadarPoint(sample, radar);
               return `${point.x},${point.y}`;
             }).join(" ");
             return points ? (
               <polyline
-                key={playerName}
+                key={track.id}
                 points={points}
                 fill="none"
-                stroke={colors[index % colors.length]}
+                stroke={colorForTrack(track)}
                 strokeWidth="7"
                 strokeLinejoin="round"
                 strokeLinecap="round"
@@ -208,13 +225,22 @@ export function RoundPathPreview({
               />
             ) : null;
           })}
-          {currentByPlayer.map((sample, index) => {
+          {currentByTrack.map((sample, index) => {
             if (!sample) return null;
             const point = toRadarPoint(sample, radar);
+            const track = allTracks[index];
             return (
               <g key={`${sample.playerName}-${index}`}>
-                <circle cx={point.x} cy={point.y} r="12" fill={sample.alive === false ? "#64748b" : colors[index % colors.length]} stroke="white" strokeWidth="4" />
-                <text x={point.x + 16} y={point.y + 4} fill="white" fontSize="18" fontWeight="700">{index + 1}</text>
+                <circle
+                  cx={point.x}
+                  cy={point.y}
+                  r="12"
+                  fill={sample.alive === false ? "#64748b" : colorForTrack(track)}
+                  stroke="white"
+                  strokeWidth="4"
+                  opacity={sample.alive === false ? 0.4 : 1}
+                />
+                <text x={point.x + 16} y={point.y + 4} fill="white" fontSize="18" fontWeight="700">{sample.markerLabel ?? index + 1}</text>
               </g>
             );
           })}
@@ -245,12 +271,15 @@ export function RoundPathPreview({
         />
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
-        {players.map((playerName, index) => (
-          <div key={playerName} className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
-            <span className="truncate">{index + 1}. {playerName}</span>
+        {legendTracks.map((track, index) => (
+          <div key={track.id} className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorForTrack(track) }} />
+            <span className="truncate">{index + 1}. {track.label}</span>
           </div>
         ))}
+        {allTracks.length > legendTracks.length ? (
+          <div className="text-slate-500">+{allTracks.length - legendTracks.length} more drawn</div>
+        ) : null}
       </div>
     </div>
   );

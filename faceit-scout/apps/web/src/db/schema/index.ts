@@ -257,3 +257,35 @@ export const teamMapSummary = pgTable("team_map_summary", {
   calculatedAt: timestamp("calculated_at", { withTimezone: true }).notNull().defaultNow(),
   analysisVersion: integer("analysis_version").notNull().default(1),
 });
+
+export const faceitAnalysis = pgTable("faceit_analysis", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  faceitMatchId: text("faceit_match_id").notNull(),
+  requestingPlayerFaceitId: text("requesting_player_faceit_id").notNull(),
+  selectedMap: text("selected_map"),
+  opponentFaction: text("opponent_faction").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const faceitAnalysisOpponent = pgTable("faceit_analysis_opponent", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  analysisId: uuid("analysis_id").notNull().references(() => faceitAnalysis.id, { onDelete: "cascade" }),
+  faceitPlayerId: text("faceit_player_id").notNull(),
+  nickname: text("nickname").notNull(),
+});
+
+export const faceitAnalysisCandidate = pgTable("faceit_analysis_candidate", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  analysisId: uuid("analysis_id").notNull().references(() => faceitAnalysis.id, { onDelete: "cascade" }),
+  faceitMatchId: text("faceit_match_id").notNull(),
+  mapName: text("map_name"),
+  sharedPlayerCount: integer("shared_player_count").notNull(),
+  sharedPlayersJson: jsonb("shared_players_json").notNull(),
+  playedAt: timestamp("played_at", { withTimezone: true }),
+  faceitMatchroomUrl: text("faceit_matchroom_url").notNull(),
+  processedMatchId: uuid("processed_match_id").references(() => csMatch.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  analysisCandidateUnique: unique("faceit_analysis_candidate_unique").on(table.analysisId, table.faceitMatchId),
+}));

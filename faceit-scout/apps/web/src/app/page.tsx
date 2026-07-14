@@ -3,6 +3,7 @@ import { getDashboard } from "@/db/queries/dashboard";
 import { formatDate } from "@/lib/format";
 import { StatusBadge } from "@/components/status-badge";
 import { Table, Td, Th } from "@/components/table";
+import { AutoRefresh } from "@/components/auto-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      <AutoRefresh enabled={data.stats.activeImports > 0} />
       <section>
         <h1 className="text-3xl font-bold">Processing dashboard</h1>
         <p className="mt-2 text-slate-600">Drop `.dem` or `.dem.zst` files into `data/incoming` and watch the pipeline here.</p>
