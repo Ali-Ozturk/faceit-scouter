@@ -172,6 +172,8 @@ Chrome downloads are saved relative to the browser's configured download folder.
 C:\Users\<user>\Downloads\FaceitScout\incoming
 ```
 
+For better Docker processor performance on Windows, use a junction so Chrome's download folder points at `data\incoming`. See [Windows Chrome Download Junction](docs/windows-download-junction.md).
+
 Open a current FACEIT CS2 matchroom, open the extension, detect or enter the current match ID, optionally enter the map, and run analysis. The extension skips already processed matches by default, opens official FACEIT matchrooms for demo retrieval, downloads available demos as `{faceit-match-id}.dem.zst`, and leaves the matchroom open with an actionable fallback when automatic retrieval is unavailable.
 
 Create a zip package after building:

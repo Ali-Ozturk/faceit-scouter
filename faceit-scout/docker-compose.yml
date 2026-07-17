@@ -31,7 +31,7 @@ services:
       context: ./apps/processor
     environment:
       DATABASE_URL: postgresql://faceit_scout:faceit_scout@postgres:5432/faceit_scout
-      INCOMING_DIRECTORY: /downloads/incoming
+      INCOMING_DIRECTORY: /data/incoming
       PROCESSING_DIRECTORY: /data/processing
       COMPLETED_DIRECTORY: /data/completed
       FAILED_DIRECTORY: /data/failed
@@ -40,7 +40,6 @@ services:
       PROCESSOR_CONCURRENCY: ${PROCESSOR_CONCURRENCY:-3}
     volumes:
       - ./data:/data
-      - C:/Users/AliOz/Downloads/FaceitScout/incoming:/downloads/incoming
     depends_on:
       postgres:
         condition: service_healthy
