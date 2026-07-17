@@ -4,6 +4,7 @@ import { getTeamMap } from "@/db/queries/teams";
 import { formatDate } from "@/lib/format";
 import { Table, Td, Th } from "@/components/table";
 import { RoundPathPreview } from "@/components/round-path-preview";
+import type { UtilitySample } from "@/components/round-path-preview";
 
 export const dynamic = "force-dynamic";
 
@@ -30,10 +31,12 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
               samples={data.samples.filter((sample) => sample.side === "T").map((sample) => ({
                 ...sample,
                 trackId: `${sample.matchTeamId}-${sample.playerName}`,
-                colorKey: sample.matchTeamId,
+                colorKey: `${sample.matchTeamId}-${sample.playerName}`,
                 markerLabel: String(data.matches.findIndex((match) => match.matchTeamId === sample.matchTeamId) + 1),
                 playerName: `${sample.playerName} · ${data.matches.findIndex((match) => match.matchTeamId === sample.matchTeamId) + 1}`,
               }))}
+              utilities={utilitiesForSamples(data.utilities, data.samples.filter((sample) => sample.side === "T"))}
+              showHeatmap
               maxLegendItems={12}
             />
             <RoundPathPreview
@@ -42,10 +45,12 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
               samples={data.samples.filter((sample) => sample.side === "CT").map((sample) => ({
                 ...sample,
                 trackId: `${sample.matchTeamId}-${sample.playerName}`,
-                colorKey: sample.matchTeamId,
+                colorKey: `${sample.matchTeamId}-${sample.playerName}`,
                 markerLabel: String(data.matches.findIndex((match) => match.matchTeamId === sample.matchTeamId) + 1),
                 playerName: `${sample.playerName} · ${data.matches.findIndex((match) => match.matchTeamId === sample.matchTeamId) + 1}`,
               }))}
+              utilities={utilitiesForSamples(data.utilities, data.samples.filter((sample) => sample.side === "CT"))}
+              showHeatmap
               maxLegendItems={12}
             />
           </div>
@@ -65,8 +70,8 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
                 <a className="text-sm font-medium text-blue-700" href={`/matches/${match.matchId}`}>Open match</a>
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
-                <RoundPathPreview title="First T round" mapName={data.mapName} samples={tSamples} />
-                <RoundPathPreview title="First CT round" mapName={data.mapName} samples={ctSamples} />
+                <RoundPathPreview title="First T round" mapName={data.mapName} samples={tSamples} utilities={utilitiesForSamples(data.utilities, tSamples)} />
+                <RoundPathPreview title="First CT round" mapName={data.mapName} samples={ctSamples} utilities={utilitiesForSamples(data.utilities, ctSamples)} />
               </div>
             </div>
           );
@@ -89,4 +94,9 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
       </section>
     </div>
   );
+}
+
+function utilitiesForSamples(utilities: (UtilitySample & { matchId: string; roundNumber: number | null })[], samples: { matchId: string; roundNumber: number }[]): UtilitySample[] {
+  const selectedRounds = new Set(samples.map((sample) => `${sample.matchId}:${sample.roundNumber}`));
+  return utilities.filter((utility) => utility.roundNumber !== null && selectedRounds.has(`${utility.matchId}:${utility.roundNumber}`));
 }

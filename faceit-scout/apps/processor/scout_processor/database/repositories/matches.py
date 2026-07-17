@@ -249,6 +249,12 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
                 thrower_player_id=player.id if player else None,
                 grenade_type=event.grenade_type,
                 demo_time=event.demo_time,
+                start_x=event.start_x,
+                start_y=event.start_y,
+                start_z=event.start_z,
+                end_x=event.end_x,
+                end_y=event.end_y,
+                end_z=event.end_z,
             )
         )
 

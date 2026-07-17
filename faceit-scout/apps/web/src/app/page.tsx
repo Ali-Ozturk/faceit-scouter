@@ -46,17 +46,23 @@ export default async function DashboardPage() {
           </Table>
         </div>
         <div>
-          <h2 className="mb-3 text-xl font-semibold">Recent matches</h2>
+          <h2 className="mb-3 text-xl font-semibold">Latest lineups</h2>
           <Table>
-            <thead><tr><Th>Map</Th><Th>Score</Th><Th>Opened</Th></tr></thead>
+            <thead><tr><Th>Lineup</Th><Th>Matches</Th><Th>Last identified</Th></tr></thead>
             <tbody>
-              {data.recentMatches.map((match) => (
-                <tr key={match.id}>
-                  <Td>{match.mapName}</Td>
-                  <Td>{match.team1Score ?? "-"} : {match.team2Score ?? "-"}</Td>
-                  <Td><Link className="font-medium text-blue-700" href={`/matches/${match.id}`}>Details</Link></Td>
+              {data.latestLineups.map((lineup) => (
+                <tr key={lineup.id}>
+                  <Td>
+                    <Link className="font-medium text-blue-700" href={`/teams/${lineup.id}`}>{lineup.displayName}</Link>
+                    <div className="mt-1 text-xs text-slate-500">{lineup.exactLineupCount} variants | {lineup.maps ?? "No maps yet"}</div>
+                  </Td>
+                  <Td>{lineup.matchCount}</Td>
+                  <Td>{formatDate(lineup.lastProcessedAt)}</Td>
                 </tr>
               ))}
+              {data.latestLineups.length === 0 ? (
+                <tr><td colSpan={3} className="border-b border-slate-100 px-4 py-6 text-center text-slate-500">No lineups identified yet.</td></tr>
+              ) : null}
             </tbody>
           </Table>
         </div>

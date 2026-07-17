@@ -64,7 +64,7 @@ export function AnalysisForm() {
           />
         </label>
         <label className="block">
-          <span className="text-sm font-medium text-slate-700">Your FACEIT player ID</span>
+          <span className="text-sm font-medium text-slate-700">Your FACEIT player ID or nickname</span>
           <input
             className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
             value={requestingPlayerFaceitId}

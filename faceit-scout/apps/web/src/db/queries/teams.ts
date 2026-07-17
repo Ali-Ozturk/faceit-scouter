@@ -1,6 +1,6 @@
-import { and, count, desc, eq, inArray, max, sql } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { csMatch, matchPlayer, matchTeam, matchTeamLineup, player, round, roundPositionSample, teamLineup, teamLineupMember } from "@/db/schema";
+import { csMatch, faceitAnalysisCandidate, grenadeEvent, matchPlayer, matchTeam, matchTeamLineup, player, round, roundPositionSample, teamLineup, teamLineupMember } from "@/db/schema";
 
 type ExactLineup = {
   id: string;
@@ -10,8 +10,8 @@ type ExactLineup = {
   memberNames: string[];
   matchCount: number;
   maps: string | null;
-  lastPlayedAt: Date | null;
-  lastProcessedAt: Date | null;
+  lastPlayedAt: Date | string | null;
+  lastProcessedAt: Date | string | null;
 };
 
 function groupId(ids: string[]) {
@@ -58,9 +58,7 @@ function buildLineupGroups(lineups: ExactLineup[]) {
 
   return [...groups.values()].map((group) => {
     const sorted = [...group].sort((a, b) => {
-      const left = a.lastProcessedAt?.getTime() ?? 0;
-      const right = b.lastProcessedAt?.getTime() ?? 0;
-      return right - left;
+      return dateTime(b.lastProcessedAt) - dateTime(a.lastProcessedAt);
     });
     const ids = sorted.map((lineup) => lineup.id);
     const memberNames = [...new Set(sorted.flatMap((lineup) => lineup.memberNames))].sort((a, b) => a.localeCompare(b));
@@ -72,14 +70,18 @@ function buildLineupGroups(lineups: ExactLineup[]) {
       exactLineupCount: ids.length,
       matchCount: sorted.reduce((total, lineup) => total + lineup.matchCount, 0),
       maps: maps.join(", ") || null,
-      lastPlayedAt: sorted.reduce<Date | null>((latest, lineup) => {
+      lastPlayedAt: sorted.reduce<Date | string | null>((latest, lineup) => {
         if (!lineup.lastPlayedAt) return latest;
-        return !latest || lineup.lastPlayedAt > latest ? lineup.lastPlayedAt : latest;
+        return !latest || dateTime(lineup.lastPlayedAt) > dateTime(latest) ? lineup.lastPlayedAt : latest;
       }, null),
       lastProcessedAt: sorted[0].lastProcessedAt,
       variantNames: sorted.map((lineup) => lineup.displayName),
     };
-  }).sort((a, b) => (b.lastProcessedAt?.getTime() ?? 0) - (a.lastProcessedAt?.getTime() ?? 0));
+  }).sort((a, b) => dateTime(b.lastProcessedAt) - dateTime(a.lastProcessedAt));
+}
+
+function dateTime(value: Date | string | null | undefined) {
+  return value ? new Date(value).getTime() : 0;
 }
 
 async function getExactLineups(ids?: string[]): Promise<ExactLineup[]> {
@@ -100,15 +102,16 @@ async function getExactLineups(ids?: string[]): Promise<ExactLineup[]> {
   const statsRows = await db
     .select({
       id: teamLineup.id,
-      matchCount: count(matchTeamLineup.matchTeamId),
+      matchCount: countDistinct(matchTeamLineup.matchTeamId),
       maps: sql<string>`string_agg(distinct ${csMatch.mapName}, ', ' order by ${csMatch.mapName})`,
-      lastPlayedAt: max(csMatch.playedAt),
+      lastPlayedAt: max(sql<Date>`coalesce(${csMatch.playedAt}, ${faceitAnalysisCandidate.playedAt})`),
       lastProcessedAt: max(csMatch.createdAt),
     })
     .from(teamLineup)
     .leftJoin(matchTeamLineup, eq(teamLineup.id, matchTeamLineup.teamLineupId))
     .leftJoin(matchTeam, eq(matchTeamLineup.matchTeamId, matchTeam.id))
     .leftJoin(csMatch, eq(matchTeam.matchId, csMatch.id))
+    .leftJoin(faceitAnalysisCandidate, eq(faceitAnalysisCandidate.processedMatchId, csMatch.id))
     .where(inArray(teamLineup.id, lineupIds))
     .groupBy(teamLineup.id);
 
@@ -154,20 +157,21 @@ export async function getTeam(id: string) {
     .select({
       matchId: csMatch.id,
       mapName: csMatch.mapName,
-      playedAt: csMatch.playedAt,
+      playedAt: sql<Date | null>`coalesce(${csMatch.playedAt}, max(${faceitAnalysisCandidate.playedAt}))`,
       team1Score: csMatch.team1Score,
       team2Score: csMatch.team2Score,
       teamNumber: matchTeam.teamNumber,
       teamScore: matchTeam.score,
-      roundCount: count(round.id),
+      roundCount: countDistinct(round.id),
     })
     .from(matchTeamLineup)
     .innerJoin(matchTeam, eq(matchTeamLineup.matchTeamId, matchTeam.id))
     .innerJoin(csMatch, eq(matchTeam.matchId, csMatch.id))
+    .leftJoin(faceitAnalysisCandidate, eq(faceitAnalysisCandidate.processedMatchId, csMatch.id))
     .leftJoin(round, eq(round.matchId, csMatch.id))
     .where(inArray(matchTeamLineup.teamLineupId, exactLineups.map((row) => row.id)))
     .groupBy(csMatch.id, matchTeam.teamNumber, matchTeam.score)
-    .orderBy(desc(csMatch.playedAt));
+    .orderBy(desc(sql`coalesce(${csMatch.playedAt}, max(${faceitAnalysisCandidate.playedAt}))`));
   return { lineup, members, matches };
 }
 
@@ -175,7 +179,7 @@ export async function getTeamMap(id: string, mapName: string) {
   const team = await getTeam(id);
   if (!team) return null;
   const memberIds = team.members.map((member) => member.id);
-  if (memberIds.length === 0) return { ...team, mapName, matches: [], samples: [] };
+  if (memberIds.length === 0) return { ...team, mapName, matches: [], samples: [], utilities: [] };
 
   const memberList = sql.join(memberIds.map((memberId) => sql`${memberId}`), sql`, `);
   const matches = await db.execute<{
@@ -194,7 +198,7 @@ export async function getTeamMap(id: string, mapName: string) {
       cm.id as "matchId",
       mt.id as "matchTeamId",
       mt.display_name as "displayName",
-      cm.played_at as "playedAt",
+      coalesce(cm.played_at, max(fac.played_at)) as "playedAt",
       cm.team_1_score as "team1Score",
       cm.team_2_score as "team2Score",
       mt.starting_side as "startingSide",
@@ -205,13 +209,15 @@ export async function getTeamMap(id: string, mapName: string) {
     join cs_match cm on cm.id = mt.match_id
     join match_player mp on mp.match_team_id = mt.id
     left join round r on r.match_id = cm.id
+    left join faceit_analysis_candidate fac on fac.processed_match_id = cm.id
     where cm.map_name = ${mapName}
     group by cm.id, mt.id
     having count(distinct case when mp.player_id in (${memberList}) then mp.player_id end) >= 4
-    order by cm.played_at desc nulls last, cm.created_at desc
+    order by coalesce(cm.played_at, max(fac.played_at)) desc nulls last, cm.created_at desc
   `);
 
   const matchTeamIds = matches.map((match) => match.matchTeamId);
+  const matchIds = matches.map((match) => match.matchId);
   const samples = matchTeamIds.length
     ? await db
         .select({
@@ -230,8 +236,35 @@ export async function getTeamMap(id: string, mapName: string) {
         .from(roundPositionSample)
         .where(inArray(roundPositionSample.matchTeamId, matchTeamIds))
     : [];
+  const utilities = matchIds.length
+    ? await db
+        .select({
+          id: grenadeEvent.id,
+          matchId: grenadeEvent.matchId,
+          roundNumber: round.roundNumber,
+          grenadeType: grenadeEvent.grenadeType,
+          seconds: sql<number>`greatest(0, (${grenadeEvent.demoTime} - coalesce(${round.startedAtDemoTime}, ${grenadeEvent.demoTime})) / coalesce(nullif(${csMatch.tickRate}, 0), 64))`,
+          durationSeconds: sql<number>`case
+            when lower(${grenadeEvent.grenadeType}) like '%smoke%' then 18
+            when lower(${grenadeEvent.grenadeType}) like '%molotov%' or lower(${grenadeEvent.grenadeType}) like '%inc%' then 7
+            else 2
+          end`,
+          startX: grenadeEvent.startX,
+          startY: grenadeEvent.startY,
+          startZ: grenadeEvent.startZ,
+          endX: grenadeEvent.endX,
+          endY: grenadeEvent.endY,
+          endZ: grenadeEvent.endZ,
+          throwerName: player.latestNickname,
+        })
+        .from(grenadeEvent)
+        .innerJoin(csMatch, eq(grenadeEvent.matchId, csMatch.id))
+        .leftJoin(round, eq(grenadeEvent.roundId, round.id))
+        .leftJoin(player, eq(grenadeEvent.throwerPlayerId, player.id))
+        .where(inArray(grenadeEvent.matchId, matchIds))
+    : [];
 
-  return { ...team, mapName, matches, samples };
+  return { ...team, mapName, matches, samples, utilities };
 }
 
 export async function getTeamMatchPlayers(matchId: string, teamId: string) {

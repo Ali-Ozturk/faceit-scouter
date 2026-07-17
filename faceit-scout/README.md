@@ -136,7 +136,7 @@ The processor ignores hidden files, `.crdownload`, `.tmp`, `.part`, and unsuppor
 
 ## FACEIT Match Discovery
 
-Open `/analyses` in the web app to enter a current FACEIT lobby or match ID, your FACEIT player ID, and optionally a selected map. The backend finds historical matchrooms where at least four current opponents played together and stores the analysis for later retrieval.
+Open `/analyses` in the web app to enter a current FACEIT lobby or match ID, your FACEIT player ID or nickname, and optionally a selected map. The backend finds historical matchrooms where at least four current opponents played together and stores the analysis for later retrieval.
 
 Demo downloading remains manual: open the returned FACEIT matchroom links, download the demo, and place the `.dem` or `.dem.zst` file in `data/incoming`.
 
@@ -162,7 +162,7 @@ In the extension popup, configure:
 
 ```text
 Backend URL: http://localhost:3000
-FACEIT player ID: your FACEIT player ID
+FACEIT player ID or nickname: your FACEIT player ID or nickname
 Download subdirectory: FaceitScout/incoming
 ```
 

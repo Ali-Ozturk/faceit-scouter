@@ -172,6 +172,12 @@ class GrenadeEvent(Base):
     thrower_team_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("match_team.id"))
     grenade_type: Mapped[str] = mapped_column(Text)
     demo_time: Mapped[float | None] = mapped_column(Double)
+    start_x: Mapped[float | None] = mapped_column(Double)
+    start_y: Mapped[float | None] = mapped_column(Double)
+    start_z: Mapped[float | None] = mapped_column(Double)
+    end_x: Mapped[float | None] = mapped_column(Double)
+    end_y: Mapped[float | None] = mapped_column(Double)
+    end_z: Mapped[float | None] = mapped_column(Double)
 
 
 class RoundPositionSample(Base):

@@ -17,12 +17,14 @@ export async function POST(request: Request) {
   }
 
   try {
+    const faceitClient = createFaceitClientFromEnv();
+    const requestingPlayerFaceitId = await faceitClient.resolvePlayerId(parsed.data.requestingPlayerFaceitId);
     const input = {
       faceitMatchId: parsed.data.faceitMatchId,
-      requestingPlayerFaceitId: parsed.data.requestingPlayerFaceitId,
+      requestingPlayerFaceitId,
       selectedMap: normalizeMapName(parsed.data.selectedMap),
     };
-    const result = await discoverFaceitMatches(createFaceitClientFromEnv(), input);
+    const result = await discoverFaceitMatches(faceitClient, input);
     const stored = await createAnalysis(input, result);
     return NextResponse.json(stored, { status: 201 });
   } catch (error) {

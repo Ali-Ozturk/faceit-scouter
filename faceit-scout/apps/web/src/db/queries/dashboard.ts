@@ -1,6 +1,7 @@
 import { count, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { csMatch, importedDemo, teamLineup } from "@/db/schema";
+import { getTeams } from "@/db/queries/teams";
 
 export async function getDashboard() {
   const [totalImports] = await db.select({ value: count() }).from(importedDemo);
@@ -13,7 +14,7 @@ export async function getDashboard() {
   const [matches] = await db.select({ value: count() }).from(csMatch);
   const [lineups] = await db.select({ value: count() }).from(teamLineup);
   const recentImports = await db.select().from(importedDemo).orderBy(desc(importedDemo.detectedAt)).limit(8);
-  const recentMatches = await db.select().from(csMatch).orderBy(desc(csMatch.createdAt)).limit(8);
+  const latestLineups = (await getTeams()).slice(0, 8);
 
   return {
     stats: {
@@ -25,6 +26,6 @@ export async function getDashboard() {
       lineups: lineups.value,
     },
     recentImports,
-    recentMatches,
+    latestLineups,
   };
 }

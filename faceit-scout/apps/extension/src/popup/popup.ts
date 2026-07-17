@@ -112,7 +112,7 @@ async function startAnalysis() {
     return;
   }
   if (!inputPayload.requestingPlayerFaceitId) {
-    showMessage("Enter your FACEIT player ID.");
+    showMessage("Enter your FACEIT player ID or nickname.");
     return;
   }
 

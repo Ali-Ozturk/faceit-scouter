@@ -101,7 +101,7 @@ async function startDownloads(candidates: AnalysisCandidate[], includeProcessed:
   await setDownloadStatuses(statuses);
 
   await runBoundedQueue(pending, settings.maxConcurrentDownloads, async (candidate) => {
-    await updateStatus(candidate.faceitMatchId, { state: "opening", message: "Opening FACEIT matchroom." });
+    await updateStatus(candidate.faceitMatchId, { state: "opening", message: "Finding FACEIT demo URL." });
     const demoUrl = await retrieveDemoUrl(candidate);
     if (!demoUrl) {
       await updateStatus(candidate.faceitMatchId, {
@@ -135,26 +135,43 @@ async function retrieveDemoUrl(candidate: AnalysisCandidate) {
   const directUrl = await retrieveDemoUrlFromExistingFaceitTab(candidate.faceitMatchId);
   if (directUrl) return directUrl;
 
-  const tab = await chrome.tabs.create({ url: candidate.faceitMatchroomUrl || createFaceitMatchroomUrl(candidate.faceitMatchId), active: true });
+  const tab = await chrome.tabs.create({ url: candidate.faceitMatchroomUrl || createFaceitMatchroomUrl(candidate.faceitMatchId), active: false });
   if (!tab.id) return null;
   pendingDemoCaptures.set(tab.id, candidate.faceitMatchId);
   await waitForTabComplete(tab.id);
 
   try {
     const response = await chrome.tabs.sendMessage(tab.id, { type: "TRIGGER_FACEIT_DEMO", matchId: candidate.faceitMatchId });
-    if (response?.demoUrl) return response.demoUrl as string;
+    if (response?.demoUrl) {
+      await closeTab(tab.id);
+      return response.demoUrl as string;
+    }
     const capturedAfterClick = await waitForCapturedDemoUrl(candidate.faceitMatchId, 12_000);
-    if (capturedAfterClick) return capturedAfterClick;
+    if (capturedAfterClick) {
+      await closeTab(tab.id);
+      return capturedAfterClick;
+    }
     await updateStatus(candidate.faceitMatchId, { state: "waiting_for_user", message: response?.error ?? "Manual download required." });
     await chrome.tabs.update(tab.id, { active: true });
     return null;
   } catch {
     const capturedAfterError = await waitForCapturedDemoUrl(candidate.faceitMatchId, 12_000);
-    if (capturedAfterError) return capturedAfterError;
+    if (capturedAfterError) {
+      await closeTab(tab.id);
+      return capturedAfterError;
+    }
     await chrome.tabs.update(tab.id, { active: true });
     return null;
   } finally {
     pendingDemoCaptures.delete(tab.id);
+  }
+}
+
+async function closeTab(tabId: number) {
+  try {
+    await chrome.tabs.remove(tabId);
+  } catch {
+    // The tab may already have been closed by the user or browser.
   }
 }
 

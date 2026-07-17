@@ -7,7 +7,8 @@ from pathlib import Path
 from scout_processor.analysis.match_summary import internal_match_fingerprint
 from scout_processor.errors.exceptions import ErrorCode, ProcessingError
 from scout_processor.ingestion.checksum import sha256_file
-from scout_processor.parsing.parser_models import ParsedDemo, ParsedKillEvent, ParsedPlayer, ParsedPositionSample, ParsedRound, ParsedTeam
+from scout_processor.parsing.event_extractors import first_present
+from scout_processor.parsing.parser_models import ParsedDemo, ParsedGrenadeEvent, ParsedKillEvent, ParsedPlayer, ParsedPositionSample, ParsedRound, ParsedTeam
 
 FACEIT_UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
@@ -79,6 +80,7 @@ class DemoParser:
             if os.getenv("PARSE_FULL_SCOREBOARD", "false").lower() == "true":
                 kills = self._apply_scoreboard_stats(parser, players, match_start_tick)
             position_samples = self._parse_position_samples(parser, players, rounds)
+            grenades = self._parse_grenades(parser, rounds, match_start_tick)
             self._apply_team_scores(teams, rounds)
         except Exception as exc:
             raise ProcessingError(ErrorCode.PARSER_FAILED, str(exc)) from exc
@@ -99,6 +101,7 @@ class DemoParser:
             team_2_score=team_2_score,
             rounds=rounds,
             kills=kills,
+            grenades=grenades,
             position_samples=position_samples,
         )
 
@@ -388,3 +391,78 @@ class DemoParser:
         first_t = next((round_result for round_result in rounds if round_result.round_number <= 12), None)
         first_ct = next((round_result for round_result in rounds if round_result.round_number > 12), None)
         return [round_result for round_result in (first_t, first_ct) if round_result]
+
+    def _parse_grenades(
+        self,
+        parser,
+        rounds: list[ParsedRound],
+        match_start_tick: int,
+    ) -> list[ParsedGrenadeEvent]:
+        event_names = {
+            "flashbang_detonate": "flashbang",
+            "hegrenade_detonate": "hegrenade",
+            "smokegrenade_detonate": "smokegrenade",
+            "smokegrenade_expired": "smokegrenade",
+            "molotov_detonate": "molotov",
+            "inferno_startburn": "molotov",
+            "inferno_expire": "molotov",
+            "decoy_detonate": "decoy",
+        }
+        events: list[ParsedGrenadeEvent] = []
+        for event_name, grenade_type in event_names.items():
+            try:
+                rows = dataframe_to_rows(parser.parse_event(event_name))
+            except Exception:
+                continue
+            for row in rows:
+                tick = int(first_present(row, ["tick", "Tick"]) or 0)
+                if tick < match_start_tick:
+                    continue
+                end_x = float_value(first_present(row, ["x", "X", "pos_x", "position_x", "grenade_x"]))
+                end_y = float_value(first_present(row, ["y", "Y", "pos_y", "position_y", "grenade_y"]))
+                end_z = float_value(first_present(row, ["z", "Z", "pos_z", "position_z", "grenade_z"]))
+                start_x = float_value(first_present(row, ["thrower_x", "start_x", "player_x"]))
+                start_y = float_value(first_present(row, ["thrower_y", "start_y", "player_y"]))
+                start_z = float_value(first_present(row, ["thrower_z", "start_z", "player_z"]))
+                events.append(
+                    ParsedGrenadeEvent(
+                        sequence_number=len(events) + 1,
+                        round_number=self._round_number_for_tick(rounds, tick),
+                        thrower_steam_id=clean_steam_id(first_present(row, [
+                            "user_steamid",
+                            "thrower_steamid",
+                            "attacker_steamid",
+                            "player_steamid",
+                            "steamid",
+                        ])),
+                        grenade_type=grenade_type,
+                        demo_time=float(tick),
+                        start_x=start_x,
+                        start_y=start_y,
+                        start_z=start_z,
+                        end_x=end_x,
+                        end_y=end_y,
+                        end_z=end_z,
+                    )
+                )
+        events.sort(key=lambda event: event.demo_time or 0)
+        for index, event in enumerate(events, start=1):
+            event.sequence_number = index
+        return events
+
+    def _round_number_for_tick(self, rounds: list[ParsedRound], tick: int) -> int | None:
+        for round_result in rounds:
+            start = round_result.started_at_demo_time
+            end = round_result.ended_at_demo_time
+            if start is not None and end is not None and int(start) <= tick <= int(end):
+                return round_result.round_number
+        return None
+
+
+def float_value(value) -> float | None:
+    if not has_value(value):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None

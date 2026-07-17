@@ -62,6 +62,12 @@ class ParsedGrenadeEvent(BaseModel):
     thrower_steam_id: str | None = None
     grenade_type: str
     demo_time: float | None = None
+    start_x: float | None = None
+    start_y: float | None = None
+    start_z: float | None = None
+    end_x: float | None = None
+    end_y: float | None = None
+    end_z: float | None = None
 
 
 class ParsedPositionSample(BaseModel):

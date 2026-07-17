@@ -1,5 +1,6 @@
 from scout_processor.parsing.demo_parser import dataframe_to_rows, sanitize_json_value
 from scout_processor.parsing.demo_parser import DemoParser
+from scout_processor.parsing.parser_models import ParsedRound
 
 
 class PolarsLikeFrame:
@@ -64,6 +65,29 @@ def test_sanitize_json_value_removes_null_bytes():
     assert value == {"demo_file_stamp": "PBDEMS2", "nested": ["ab"]}
 
 
+def test_parse_grenades_extracts_utility_positions():
+    rounds = [
+        ParsedRound(
+            round_number=1,
+            started_at_demo_time=100,
+            ended_at_demo_time=500,
+        )
+    ]
+
+    events = DemoParser()._parse_grenades(GrenadeParser(), rounds, 100)
+
+    assert len(events) == 2
+    assert [(event.grenade_type, event.round_number) for event in events] == [
+        ("flashbang", 1),
+        ("smokegrenade", 1),
+    ]
+    assert events[0].thrower_steam_id == "765"
+    assert events[0].end_x == 10
+    assert events[0].end_y == 20
+    assert events[1].start_x == 1
+    assert events[1].end_x == 40
+
+
 class PandasLikePlayerInfoFrame:
     def to_dict(self, orient=None):
         assert orient == "records"
@@ -86,3 +110,24 @@ class PandasLikeStartTickFrame:
             {"steamid": 7656111, "name": "A", "team_num": 3, "team_name": "CT"},
             {"steamid": 7656112, "name": "B", "team_num": 2, "team_name": "TERRORIST"},
         ]
+
+
+class GrenadeParser:
+    def parse_event(self, event_name):
+        return PandasLikeEventFrame({
+            "flashbang_detonate": [
+                {"tick": 150, "user_steamid": 765.0, "x": 10, "y": 20, "z": 30},
+            ],
+            "smokegrenade_detonate": [
+                {"tick": 250, "thrower_steamid": "766", "thrower_x": 1, "thrower_y": 2, "x": 40, "y": 50},
+            ],
+        }.get(event_name, []))
+
+
+class PandasLikeEventFrame:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def to_dict(self, orient=None):
+        assert orient == "records"
+        return self.rows

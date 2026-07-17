@@ -1,6 +1,7 @@
 import type { FaceitApi, FaceitHistoryEntry } from "./discovery";
 
 const FACEIT_BASE_URL = "https://open.faceit.com/data/v4";
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export class FaceitHttpError extends Error {
   constructor(
@@ -17,6 +18,18 @@ export class FaceitHttpClient implements FaceitApi {
 
   async getMatch(matchId: string) {
     return this.request(`/matches/${encodeURIComponent(matchId)}`);
+  }
+
+  async resolvePlayerId(playerIdOrNickname: string) {
+    const trimmed = playerIdOrNickname.trim();
+    if (UUID_PATTERN.test(trimmed)) return trimmed;
+
+    const response = await this.request(`/players?nickname=${encodeURIComponent(trimmed)}&game=cs2`);
+    const playerId = stringValue(response.player_id ?? response.playerId);
+    if (!playerId) {
+      throw new Error(`Could not resolve FACEIT player nickname "${trimmed}".`);
+    }
+    return playerId;
   }
 
   async getPlayerHistory(playerId: string, limit: number): Promise<FaceitHistoryEntry[]> {
