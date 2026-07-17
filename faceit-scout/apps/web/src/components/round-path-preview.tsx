@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 
 export type PositionSample = {
   trackId?: string;
   colorKey?: string;
   markerLabel?: string;
+  filterGroup?: string;
   playerId?: string;
   matchId?: string;
+  matchTeamId?: string;
   roundNumber?: number;
   side: string;
   seconds: number;
@@ -20,6 +23,7 @@ export type PositionSample = {
 
 export type UtilitySample = {
   id: string;
+  filterGroup?: string;
   matchId?: string;
   throwerPlayerId?: string | null;
   throwerTeamId?: string | null;
@@ -41,6 +45,12 @@ type RadarConfig = {
   posX?: number;
   posY?: number;
   scale?: number;
+};
+
+export type PreviewFilterGroup = {
+  id: string;
+  label: string;
+  detail?: string;
 };
 
 const colors = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c"];
@@ -174,6 +184,9 @@ export function RoundPathPreview({
   samples,
   utilities = [],
   showHeatmap = false,
+  allowFullscreen = false,
+  density = "default",
+  filterGroups = [],
   maxLegendItems = 10,
 }: {
   title: string;
@@ -181,16 +194,36 @@ export function RoundPathPreview({
   samples: PositionSample[];
   utilities?: UtilitySample[];
   showHeatmap?: boolean;
+  allowFullscreen?: boolean;
+  density?: "default" | "compact" | "modal";
+  filterGroups?: PreviewFilterGroup[];
   maxLegendItems?: number;
 }) {
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
+  const [heatmapEnabled, setHeatmapEnabled] = useState(showHeatmap);
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
+  const [enabledGroups, setEnabledGroups] = useState(() => new Set(filterGroups.map((group) => group.id)));
 
-  const ordered = useMemo(() => [...samples].sort((a, b) => (
+  useEffect(() => {
+    setEnabledGroups(new Set(filterGroups.map((group) => group.id)));
+  }, [filterGroups]);
+
+  const activeGroupIds = useMemo(() => new Set(filterGroups.map((group) => group.id)), [filterGroups]);
+  const filteredSamples = useMemo(() => {
+    if (filterGroups.length === 0) return samples;
+    return samples.filter((sample) => sample.filterGroup && enabledGroups.has(sample.filterGroup));
+  }, [enabledGroups, filterGroups.length, samples]);
+  const filteredUtilities = useMemo(() => {
+    if (filterGroups.length === 0) return utilities;
+    return utilities.filter((utility) => utility.filterGroup && enabledGroups.has(utility.filterGroup));
+  }, [enabledGroups, filterGroups.length, utilities]);
+
+  const ordered = useMemo(() => [...filteredSamples].sort((a, b) => (
     a.seconds - b.seconds ||
     (a.tick ?? 0) - (b.tick ?? 0) ||
     a.playerName.localeCompare(b.playerName)
-  )), [samples]);
+  )), [filteredSamples]);
   const duration = ordered.length ? Math.max(...ordered.map((sample) => sample.seconds)) : 0;
   const allTracks = useMemo(() => {
     const byTrack = new Map<string, { label: string; colorKey: string }>();
@@ -207,8 +240,8 @@ export function RoundPathPreview({
   const colorForTrack = (track: { colorKey: string }) => colors[Math.max(0, colorKeys.indexOf(track.colorKey)) % colors.length];
   const radar = useMemo(() => (ordered.length ? resolveRadar(mapName, ordered) : undefined), [mapName, ordered]);
   const heatmapPoints = useMemo(() => (
-    radar && showHeatmap ? buildHeatmapPoints(ordered, radar) : []
-  ), [ordered, radar, showHeatmap]);
+    radar && heatmapEnabled ? buildHeatmapPoints(ordered, radar) : []
+  ), [ordered, radar, heatmapEnabled]);
   const diagnostics = useMemo(() => (
     radar ? buildPathDiagnostics(ordered, radar) : []
   ), [ordered, radar]);
@@ -217,7 +250,7 @@ export function RoundPathPreview({
     if (!playing || duration <= 0) return;
     const interval = window.setInterval(() => {
       setTime((value) => {
-        const next = value + 0.25;
+        const next = value + 0.75;
         if (next >= duration) {
           setPlaying(false);
           return duration;
@@ -228,7 +261,16 @@ export function RoundPathPreview({
     return () => window.clearInterval(interval);
   }, [playing, duration]);
 
-  if (ordered.length === 0 || !radar) {
+  useEffect(() => {
+    if (!fullscreenOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFullscreenOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [fullscreenOpen]);
+
+  if (samples.length === 0) {
     return (
       <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
         {title}: no path samples yet
@@ -236,8 +278,11 @@ export function RoundPathPreview({
     );
   }
 
+  const fallbackRadar = resolveRadar(mapName, samples);
+  const displayRadar = radar ?? fallbackRadar;
+
   const visible = ordered.filter((sample) => sample.seconds <= time);
-  const visibleUtilities = utilities.filter((item) => {
+  const visibleUtilities = filteredUtilities.filter((item) => {
     const duration = item.durationSeconds ?? 2;
     const flightStart = utilityFlightStart(item);
     return flightStart <= time && time <= item.seconds + duration;
@@ -246,33 +291,55 @@ export function RoundPathPreview({
     const playerSamples = visible.filter((sample) => (sample.trackId ?? sample.playerName) === track.id);
     return playerSamples[playerSamples.length - 1] ?? ordered.find((sample) => (sample.trackId ?? sample.playerName) === track.id);
   });
+  const radarBoxStyle = radarContainerStyle(density);
 
-  return (
-    <div className="rounded border border-slate-200 bg-white p-3">
+  const preview = (
+    <div className={`rounded border border-slate-200 bg-white p-3 ${density === "modal" ? "mx-auto flex max-h-full w-full max-w-[1100px] flex-col" : ""}`}>
       <div className="mb-2 flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">{title}</h3>
-        <span className="text-xs text-slate-500">{time.toFixed(1)}s / {duration.toFixed(1)}s</span>
+        <div className="flex items-center gap-2">
+          {showHeatmap ? (
+            <button
+              type="button"
+              onClick={() => setHeatmapEnabled((value) => !value)}
+              className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:border-slate-400"
+            >
+              Heatmap {heatmapEnabled ? "on" : "off"}
+            </button>
+          ) : null}
+          <span className="text-xs text-slate-500">{time.toFixed(1)}s / {duration.toFixed(1)}s</span>
+        </div>
       </div>
-      <div className="relative overflow-hidden rounded bg-slate-950" style={{ aspectRatio: "1 / 1" }}>
-        <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${radar.imageSize} ${radar.imageSize}`}>
-          {radar.imageUrl ? (
-            <image href={radar.imageUrl} x="0" y="0" width={radar.imageSize} height={radar.imageSize} opacity="0.9" />
+      <div className="relative overflow-hidden rounded bg-slate-950" style={radarBoxStyle}>
+        {allowFullscreen ? (
+          <button
+            type="button"
+            onClick={() => setFullscreenOpen(true)}
+            className="absolute right-2 top-2 z-10 rounded border border-white/30 bg-slate-950/75 px-2 py-1 text-xs font-medium text-white shadow-sm hover:bg-slate-900"
+          >
+            Fullscreen
+          </button>
+        ) : null}
+        <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${displayRadar.imageSize} ${displayRadar.imageSize}`}>
+          {displayRadar.imageUrl ? (
+            <image href={displayRadar.imageUrl} x="0" y="0" width={displayRadar.imageSize} height={displayRadar.imageSize} opacity="0.9" />
           ) : (
-            <rect x="0" y="0" width={radar.imageSize} height={radar.imageSize} fill="#020617" />
+            <rect x="0" y="0" width={displayRadar.imageSize} height={displayRadar.imageSize} fill="#020617" />
           )}
+          {ordered.length === 0 ? (
+            <text x={displayRadar.imageSize / 2} y={displayRadar.imageSize / 2} textAnchor="middle" fill="#cbd5e1" fontSize="28" fontWeight="700">
+              No demos selected
+            </text>
+          ) : null}
           {heatmapPoints.map((point) => (
-            <circle
-              key={`${point.x}-${point.y}-${point.weight}`}
-              cx={point.x}
-              cy={point.y}
-              r={point.radius}
-              fill="#38bdf8"
-              opacity={point.opacity}
-            />
+            <g key={`${point.x}-${point.y}-${point.weight}`}>
+              <circle cx={point.x} cy={point.y} r={point.radius} fill={point.color} opacity={point.opacity} />
+              <circle cx={point.x} cy={point.y} r={Math.max(7, point.radius * 0.28)} fill="#fff7ad" opacity={point.coreOpacity} />
+            </g>
           ))}
           {allTracks.map((track, index) => {
             const playerSamples = visible.filter((sample) => (sample.trackId ?? sample.playerName) === track.id);
-            const segments = buildTrackSegments(playerSamples, radar);
+            const segments = buildTrackSegments(playerSamples, displayRadar);
             return segments.map((segment, segmentIndex) => (
               <path
                 key={`${track.id}-${segmentIndex}`}
@@ -287,12 +354,26 @@ export function RoundPathPreview({
             ));
           })}
           {visibleUtilities.map((utility) => {
-            const point = utilityPointAtTime(utility, radar, time);
+            const flight = utilityFlightAtTime(utility, displayRadar, time, ordered);
+            const point = flight?.point ?? null;
             if (!point) return null;
             const color = utilityColor(utility.grenadeType);
             const landed = time >= utility.seconds;
             return (
               <g key={utility.id}>
+                {!landed && flight?.start ? (
+                  <line
+                    x1={flight.start.x}
+                    y1={flight.start.y}
+                    x2={point.x}
+                    y2={point.y}
+                    stroke={color}
+                    strokeWidth="5"
+                    strokeLinecap="round"
+                    strokeDasharray="10 10"
+                    opacity="0.75"
+                  />
+                ) : null}
                 <circle cx={point.x} cy={point.y} r={landed ? "13" : "9"} fill={color} opacity="0.85" stroke="white" strokeWidth="3" />
                 <text x={point.x + 17} y={point.y + 5} fill="white" fontSize="16" fontWeight="700">{utilityLabel(utility.grenadeType)}</text>
               </g>
@@ -300,7 +381,7 @@ export function RoundPathPreview({
           })}
           {currentByTrack.map((sample, index) => {
             if (!sample) return null;
-            const point = toRadarPoint(sample, radar);
+            const point = toRadarPoint(sample, displayRadar);
             const track = allTracks[index];
             return (
               <g key={`${sample.playerName}-${index}`}>
@@ -343,20 +424,66 @@ export function RoundPathPreview({
           className="w-full"
         />
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
-        {legendTracks.map((track, index) => (
-          <div key={track.id} className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorForTrack(track) }} />
-            <span className="truncate">{index + 1}. {track.label}</span>
+      {filterGroups.length ? (
+        <div className="mt-3 space-y-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setEnabledGroups(new Set(activeGroupIds))}
+              className="rounded border border-slate-300 px-2 py-1 font-medium hover:border-slate-400"
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => setEnabledGroups(new Set())}
+              className="rounded border border-slate-300 px-2 py-1 font-medium hover:border-slate-400"
+            >
+              None
+            </button>
+            <span className="text-slate-500">{enabledGroups.size}/{filterGroups.length} demos visible</span>
+            {filteredUtilities.length ? <span className="text-slate-500">{filteredUtilities.length} utility events</span> : null}
           </div>
-        ))}
-        {allTracks.length > legendTracks.length ? (
-          <div className="text-slate-500">+{allTracks.length - legendTracks.length} more drawn</div>
-        ) : null}
-        {utilities.length ? (
-          <div className="text-slate-500">{utilities.length} utility events</div>
-        ) : null}
-      </div>
+          <div className="flex flex-wrap gap-2">
+            {filterGroups.map((group) => {
+              const checked = enabledGroups.has(group.id);
+              return (
+                <button
+                  key={group.id}
+                  type="button"
+                  onClick={() => {
+                    setEnabledGroups((current) => {
+                      const next = new Set(current);
+                      if (next.has(group.id)) next.delete(group.id);
+                      else next.add(group.id);
+                      return next;
+                    });
+                  }}
+                  title={group.detail}
+                  className={`rounded border px-2 py-1 font-medium ${checked ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-500"}`}
+                >
+                  {group.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+          {legendTracks.map((track, index) => (
+            <div key={track.id} className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorForTrack(track) }} />
+              <span className="truncate">{index + 1}. {track.label}</span>
+            </div>
+          ))}
+          {allTracks.length > legendTracks.length ? (
+            <div className="text-slate-500">+{allTracks.length - legendTracks.length} more drawn</div>
+          ) : null}
+          {utilities.length ? (
+            <div className="text-slate-500">{utilities.length} utility events</div>
+          ) : null}
+        </div>
+      )}
       {diagnostics.length ? (
         <details className="mt-2 text-xs text-slate-500">
           <summary className="cursor-pointer font-medium">Path diagnostics</summary>
@@ -372,6 +499,61 @@ export function RoundPathPreview({
       ) : null}
     </div>
   );
+
+  return (
+    <>
+      {preview}
+      {fullscreenOpen ? (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
+          <div className="mx-auto flex h-full max-w-[min(1500px,96vw)] flex-col overflow-hidden rounded border border-slate-700 bg-slate-950 p-4 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between gap-3 text-white">
+              <h2 className="text-lg font-semibold">{title}</h2>
+              <button
+                type="button"
+                onClick={() => setFullscreenOpen(false)}
+                className="rounded border border-white/30 px-3 py-1.5 text-sm font-medium hover:bg-white/10"
+              >
+                Close
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <RoundPathPreview
+                title={title}
+                mapName={mapName}
+                samples={samples}
+                utilities={utilities}
+                showHeatmap={showHeatmap}
+                allowFullscreen={false}
+                density="modal"
+                filterGroups={filterGroups}
+                maxLegendItems={Math.max(maxLegendItems, 12)}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function radarContainerStyle(density: "default" | "compact" | "modal"): CSSProperties {
+  if (density === "modal") {
+    return {
+      width: "min(100%, calc(100vh - 210px))",
+      maxWidth: "100%",
+      aspectRatio: "1 / 1",
+      marginInline: "auto",
+      flexShrink: 0,
+    };
+  }
+  if (density === "compact") {
+    return {
+      width: "min(100%, 560px)",
+      aspectRatio: "1 / 1",
+      marginInline: "auto",
+    };
+  }
+  return { aspectRatio: "1 / 1" };
 }
 
 function buildTrackSegments(samples: PositionSample[], radar: RadarConfig) {
@@ -424,9 +606,17 @@ function buildHeatmapPoints(samples: PositionSample[], radar: RadarConfig) {
   const maxWeight = Math.max(1, ...[...buckets.values()].map((bucket) => bucket.weight));
   return [...buckets.values()].map((bucket) => ({
     ...bucket,
-    radius: 16 + (bucket.weight / maxWeight) * 34,
-    opacity: 0.08 + (bucket.weight / maxWeight) * 0.24,
+    radius: 20 + (bucket.weight / maxWeight) * 46,
+    opacity: 0.18 + (bucket.weight / maxWeight) * 0.32,
+    coreOpacity: 0.28 + (bucket.weight / maxWeight) * 0.42,
+    color: heatColor(bucket.weight / maxWeight),
   }));
+}
+
+function heatColor(intensity: number) {
+  if (intensity > 0.72) return "#ef4444";
+  if (intensity > 0.42) return "#f97316";
+  return "#facc15";
 }
 
 function buildPathDiagnostics(samples: PositionSample[], radar: RadarConfig) {
@@ -469,23 +659,46 @@ function roundPoint(value: number) {
   return Math.round(value * 10) / 10;
 }
 
-function utilityPointAtTime(utility: UtilitySample, radar: RadarConfig, time: number) {
+function utilityFlightAtTime(utility: UtilitySample, radar: RadarConfig, time: number, samples: PositionSample[]) {
   const start = utility.startX !== null && utility.startX !== undefined && utility.startY !== null && utility.startY !== undefined
     ? toRadarPoint({ x: utility.startX, y: utility.startY }, radar)
-    : null;
+    : utilityStartFromSamples(utility, samples, radar);
   const end = utility.endX !== null && utility.endX !== undefined && utility.endY !== null && utility.endY !== undefined
     ? toRadarPoint({ x: utility.endX, y: utility.endY }, radar)
     : start;
 
   if (!end) return null;
-  if (!start || time >= utility.seconds) return end;
+  if (!start || time >= utility.seconds) return { point: end, start, end };
 
   const flightStart = utilityFlightStart(utility);
   const progress = Math.max(0, Math.min(1, (time - flightStart) / Math.max(0.1, utility.seconds - flightStart)));
   return {
-    x: start.x + (end.x - start.x) * progress,
-    y: start.y + (end.y - start.y) * progress,
+    point: {
+      x: start.x + (end.x - start.x) * progress,
+      y: start.y + (end.y - start.y) * progress,
+    },
+    start,
+    end,
   };
+}
+
+function utilityStartFromSamples(utility: UtilitySample, samples: PositionSample[], radar: RadarConfig) {
+  const sameThrower = samples.filter((sample) => (
+    (!utility.throwerPlayerId || sample.playerId === utility.throwerPlayerId) &&
+    (!utility.matchId || sample.matchId === utility.matchId) &&
+    (utility.roundNumber === null || utility.roundNumber === undefined || sample.roundNumber === utility.roundNumber) &&
+    sample.alive !== false
+  ));
+  if (sameThrower.length === 0) return null;
+
+  const flightStart = utilityFlightStart(utility);
+  const beforeOrAtThrow = sameThrower
+    .filter((sample) => sample.seconds <= flightStart)
+    .sort((a, b) => b.seconds - a.seconds)[0];
+  const nearest = beforeOrAtThrow ?? sameThrower
+    .sort((a, b) => Math.abs(a.seconds - flightStart) - Math.abs(b.seconds - flightStart))[0];
+
+  return nearest ? toRadarPoint(nearest, radar) : null;
 }
 
 function utilityFlightStart(utility: UtilitySample) {

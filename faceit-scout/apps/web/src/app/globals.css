@@ -10,3 +10,12 @@ body {
 a {
   color: inherit;
 }
+
+@keyframes targetPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+  35% {
+    box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.18);
+  }
+}

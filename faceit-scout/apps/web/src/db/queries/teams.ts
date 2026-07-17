@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { and, count, countDistinct, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { csMatch, faceitAnalysisCandidate, grenadeEvent, matchPlayer, matchTeam, matchTeamLineup, player, round, roundPositionSample, teamLineup, teamLineupMember } from "@/db/schema";
@@ -15,7 +16,8 @@ type ExactLineup = {
 };
 
 function groupId(ids: string[]) {
-  return `group_${ids.sort().join("_")}`;
+  const key = [...ids].sort().join(":");
+  return `grp_${createHash("sha256").update(key).digest("hex").slice(0, 12)}`;
 }
 
 function parseGroupId(id: string) {
@@ -65,6 +67,7 @@ function buildLineupGroups(lineups: ExactLineup[]) {
     const maps = [...new Set(sorted.flatMap((lineup) => lineup.maps?.split(", ").filter(Boolean) ?? []))].sort();
     return {
       id: ids.length === 1 ? ids[0] : groupId(ids),
+      exactLineupIds: ids,
       displayName: memberNames.join(", "),
       playerCount: memberNames.length,
       exactLineupCount: ids.length,
@@ -138,7 +141,8 @@ export async function getTeams() {
 
 export async function getTeam(id: string) {
   const groupIds = parseGroupId(id);
-  const exactLineups = await getExactLineups(groupIds ?? [id]);
+  const resolvedIds = groupIds ?? await exactLineupIdsForShortGroup(id);
+  const exactLineups = await getExactLineups(resolvedIds ?? [id]);
   if (exactLineups.length === 0) return null;
   const lineup = {
     id,
@@ -272,6 +276,12 @@ export async function getTeamMap(id: string, mapName: string) {
     : [];
 
   return { ...team, mapName, matches, samples, utilities };
+}
+
+async function exactLineupIdsForShortGroup(id: string) {
+  if (!id.startsWith("grp_")) return null;
+  const group = buildLineupGroups(await getExactLineups()).find((lineup) => lineup.id === id);
+  return group?.exactLineupIds ?? null;
 }
 
 export async function getTeamMatchPlayers(matchId: string, teamId: string) {
