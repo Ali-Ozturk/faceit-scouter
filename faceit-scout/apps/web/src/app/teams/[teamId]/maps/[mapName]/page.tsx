@@ -4,9 +4,11 @@ import { getTeamMap } from "@/db/queries/teams";
 import { formatDate } from "@/lib/format";
 import { Table, Td, Th } from "@/components/table";
 import { RoundPathPreview } from "@/components/round-path-preview";
-import type { UtilitySample } from "@/components/round-path-preview";
+import type { PositionSample, UtilitySample } from "@/components/round-path-preview";
 
 export const dynamic = "force-dynamic";
+const openingTendencyPreviewsEnabled = process.env.OPENING_TENDENCY_PREVIEWS_ENABLED === "true";
+const openingWindowSeconds = 30;
 
 export default async function TeamMapPage({ params }: { params: Promise<{ teamId: string; mapName: string }> }) {
   const { teamId, mapName } = await params;
@@ -19,6 +21,41 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
         <p className="mt-2 text-slate-600">{data.matches.length} processed matches with at least 4 shared players on this map.</p>
       </div>
       <section className="space-y-5">
+        {openingTendencyPreviewsEnabled ? (
+          <div className="space-y-4 rounded border border-slate-300 bg-white p-4">
+            <div>
+              <h2 className="text-xl font-semibold">Opponent opening tendencies</h2>
+              <p className="mt-1 text-sm text-slate-600">Every stored round merged into each player's first {openingWindowSeconds} seconds, split by side.</p>
+            </div>
+            <div className="space-y-5">
+              {data.members.map((member) => {
+                const playerSamples = data.samples.filter((sample) => sample.playerId === member.id && sample.seconds <= openingWindowSeconds);
+                const playerUtilities = data.utilities.filter((utility) => utility.throwerPlayerId === member.id);
+                return (
+                  <div key={member.id} className="space-y-3 border-t border-slate-200 pt-4 first:border-t-0 first:pt-0">
+                    <h3 className="font-semibold">{member.nickname}</h3>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <RoundPathPreview
+                        title={`${member.nickname} T openings`}
+                        mapName={data.mapName}
+                        samples={openingSamplesForPlayer(playerSamples, "T", member.id)}
+                        utilities={openingUtilitiesForSamples(playerUtilities, playerSamples.filter((sample) => sample.side === "T"))}
+                        maxLegendItems={8}
+                      />
+                      <RoundPathPreview
+                        title={`${member.nickname} CT openings`}
+                        mapName={data.mapName}
+                        samples={openingSamplesForPlayer(playerSamples, "CT", member.id)}
+                        utilities={openingUtilitiesForSamples(playerUtilities, playerSamples.filter((sample) => sample.side === "CT"))}
+                        maxLegendItems={8}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
         <div className="space-y-3 rounded border border-slate-300 bg-white p-4">
           <div>
             <h2 className="text-xl font-semibold">Merged opening-round tendencies</h2>
@@ -99,4 +136,26 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
 function utilitiesForSamples(utilities: (UtilitySample & { matchId: string; roundNumber: number | null })[], samples: { matchId: string; roundNumber: number }[]): UtilitySample[] {
   const selectedRounds = new Set(samples.map((sample) => `${sample.matchId}:${sample.roundNumber}`));
   return utilities.filter((utility) => utility.roundNumber !== null && selectedRounds.has(`${utility.matchId}:${utility.roundNumber}`));
+}
+
+function openingSamplesForPlayer(samples: PositionSample[], side: string, playerId: string): PositionSample[] {
+  return samples
+    .filter((sample) => sample.side === side)
+    .map((sample) => ({
+      ...sample,
+      trackId: `${sample.matchId}-${sample.roundNumber}-${playerId}`,
+      colorKey: playerId,
+      markerLabel: String(sample.roundNumber ?? ""),
+      playerName: `Round ${sample.roundNumber}`,
+    }));
+}
+
+function openingUtilitiesForSamples(utilities: UtilitySample[], samples: PositionSample[]): UtilitySample[] {
+  const selectedRounds = new Set(samples.map((sample) => `${sample.matchId}:${sample.roundNumber}`));
+  return utilities.filter((utility) => {
+    if (utility.roundNumber === null || utility.roundNumber === undefined) return false;
+    if (!selectedRounds.has(`${utility.matchId}:${utility.roundNumber}`)) return false;
+    const start = utility.flightStartSeconds ?? utility.seconds;
+    return start <= openingWindowSeconds;
+  });
 }

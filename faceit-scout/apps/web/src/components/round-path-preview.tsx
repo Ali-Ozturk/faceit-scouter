@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type PositionSample = {
+export type PositionSample = {
   trackId?: string;
   colorKey?: string;
   markerLabel?: string;
+  playerId?: string;
+  matchId?: string;
+  roundNumber?: number;
   side: string;
   seconds: number;
   playerName: string;
@@ -17,7 +20,12 @@ type PositionSample = {
 
 export type UtilitySample = {
   id: string;
+  matchId?: string;
+  throwerPlayerId?: string | null;
+  throwerTeamId?: string | null;
+  roundNumber?: number | null;
   grenadeType: string;
+  flightStartSeconds?: number | null;
   seconds: number;
   durationSeconds?: number | null;
   startX?: number | null;
@@ -231,7 +239,8 @@ export function RoundPathPreview({
   const visible = ordered.filter((sample) => sample.seconds <= time);
   const visibleUtilities = utilities.filter((item) => {
     const duration = item.durationSeconds ?? 2;
-    return item.seconds <= time && time <= item.seconds + duration;
+    const flightStart = utilityFlightStart(item);
+    return flightStart <= time && time <= item.seconds + duration;
   });
   const currentByTrack = allTracks.map((track) => {
     const playerSamples = visible.filter((sample) => (sample.trackId ?? sample.playerName) === track.id);
@@ -278,16 +287,13 @@ export function RoundPathPreview({
             ));
           })}
           {visibleUtilities.map((utility) => {
-            const point = utility.endX !== null && utility.endX !== undefined && utility.endY !== null && utility.endY !== undefined
-              ? toRadarPoint({ x: utility.endX, y: utility.endY }, radar)
-              : utility.startX !== null && utility.startX !== undefined && utility.startY !== null && utility.startY !== undefined
-                ? toRadarPoint({ x: utility.startX, y: utility.startY }, radar)
-                : null;
+            const point = utilityPointAtTime(utility, radar, time);
             if (!point) return null;
             const color = utilityColor(utility.grenadeType);
+            const landed = time >= utility.seconds;
             return (
               <g key={utility.id}>
-                <circle cx={point.x} cy={point.y} r="13" fill={color} opacity="0.85" stroke="white" strokeWidth="3" />
+                <circle cx={point.x} cy={point.y} r={landed ? "13" : "9"} fill={color} opacity="0.85" stroke="white" strokeWidth="3" />
                 <text x={point.x + 17} y={point.y + 5} fill="white" fontSize="16" fontWeight="700">{utilityLabel(utility.grenadeType)}</text>
               </g>
             );
@@ -461,6 +467,38 @@ function distance(left: { x: number; y: number }, right: { x: number; y: number 
 
 function roundPoint(value: number) {
   return Math.round(value * 10) / 10;
+}
+
+function utilityPointAtTime(utility: UtilitySample, radar: RadarConfig, time: number) {
+  const start = utility.startX !== null && utility.startX !== undefined && utility.startY !== null && utility.startY !== undefined
+    ? toRadarPoint({ x: utility.startX, y: utility.startY }, radar)
+    : null;
+  const end = utility.endX !== null && utility.endX !== undefined && utility.endY !== null && utility.endY !== undefined
+    ? toRadarPoint({ x: utility.endX, y: utility.endY }, radar)
+    : start;
+
+  if (!end) return null;
+  if (!start || time >= utility.seconds) return end;
+
+  const flightStart = utilityFlightStart(utility);
+  const progress = Math.max(0, Math.min(1, (time - flightStart) / Math.max(0.1, utility.seconds - flightStart)));
+  return {
+    x: start.x + (end.x - start.x) * progress,
+    y: start.y + (end.y - start.y) * progress,
+  };
+}
+
+function utilityFlightStart(utility: UtilitySample) {
+  return Math.max(0, utility.flightStartSeconds ?? utility.seconds - inferredFlightDuration(utility.grenadeType));
+}
+
+function inferredFlightDuration(type: string) {
+  const lower = type.toLowerCase();
+  if (lower.includes("flash")) return 1;
+  if (lower.includes("he")) return 1.2;
+  if (lower.includes("smoke")) return 1.8;
+  if (lower.includes("molotov") || lower.includes("inc")) return 1.5;
+  return 1.25;
 }
 
 function utilityColor(type: string) {

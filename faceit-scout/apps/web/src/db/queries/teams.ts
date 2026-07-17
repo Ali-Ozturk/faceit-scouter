@@ -223,6 +223,7 @@ export async function getTeamMap(id: string, mapName: string) {
         .select({
           matchId: roundPositionSample.matchId,
           matchTeamId: roundPositionSample.matchTeamId,
+          playerId: roundPositionSample.playerId,
           roundNumber: roundPositionSample.roundNumber,
           side: roundPositionSample.side,
           seconds: roundPositionSample.seconds,
@@ -241,8 +242,14 @@ export async function getTeamMap(id: string, mapName: string) {
         .select({
           id: grenadeEvent.id,
           matchId: grenadeEvent.matchId,
+          throwerPlayerId: grenadeEvent.throwerPlayerId,
+          throwerTeamId: grenadeEvent.throwerTeamId,
           roundNumber: round.roundNumber,
           grenadeType: grenadeEvent.grenadeType,
+          flightStartSeconds: sql<number | null>`case
+            when ${grenadeEvent.thrownDemoTime} is null then null
+            else greatest(0, (${grenadeEvent.thrownDemoTime} - coalesce(${round.startedAtDemoTime}, ${grenadeEvent.thrownDemoTime})) / coalesce(nullif(${csMatch.tickRate}, 0), 64))
+          end`,
           seconds: sql<number>`greatest(0, (${grenadeEvent.demoTime} - coalesce(${round.startedAtDemoTime}, ${grenadeEvent.demoTime})) / coalesce(nullif(${csMatch.tickRate}, 0), 64))`,
           durationSeconds: sql<number>`case
             when lower(${grenadeEvent.grenadeType}) like '%smoke%' then 18

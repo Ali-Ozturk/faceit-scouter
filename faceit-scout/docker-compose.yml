@@ -20,6 +20,7 @@ services:
       context: ./apps/web
     environment:
       DATABASE_URL: postgresql://faceit_scout:faceit_scout@postgres:5432/faceit_scout
+      OPENING_TENDENCY_PREVIEWS_ENABLED: ${OPENING_TENDENCY_PREVIEWS_ENABLED:-false}
     ports:
       - "3000:3000"
     depends_on:
@@ -38,6 +39,7 @@ services:
       DECOMPRESSED_DIRECTORY: /data/decompressed
       TEMPORARY_DIRECTORY: /data/temporary
       PROCESSOR_CONCURRENCY: ${PROCESSOR_CONCURRENCY:-3}
+      OPENING_TENDENCY_PREVIEWS_ENABLED: ${OPENING_TENDENCY_PREVIEWS_ENABLED:-false}
     volumes:
       - ./data:/data
     depends_on:

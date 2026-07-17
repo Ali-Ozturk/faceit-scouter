@@ -82,6 +82,8 @@ def test_parse_grenades_extracts_utility_positions():
         ("smokegrenade", 1),
     ]
     assert events[0].thrower_steam_id == "765"
+    assert events[0].thrown_demo_time == 125
+    assert events[0].start_x == 5
     assert events[0].end_x == 10
     assert events[0].end_y == 20
     assert events[1].start_x == 1
@@ -115,6 +117,9 @@ class PandasLikeStartTickFrame:
 class GrenadeParser:
     def parse_event(self, event_name):
         return PandasLikeEventFrame({
+            "grenade_thrown": [
+                {"tick": 125, "user_steamid": 765.0, "weapon": "flashbang", "x": 5, "y": 6},
+            ],
             "flashbang_detonate": [
                 {"tick": 150, "user_steamid": 765.0, "x": 10, "y": 20, "z": 30},
             ],

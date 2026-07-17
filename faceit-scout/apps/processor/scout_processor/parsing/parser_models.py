@@ -61,6 +61,7 @@ class ParsedGrenadeEvent(BaseModel):
     round_number: int | None = None
     thrower_steam_id: str | None = None
     grenade_type: str
+    thrown_demo_time: float | None = None
     demo_time: float | None = None
     start_x: float | None = None
     start_y: float | None = None

@@ -178,6 +178,7 @@ export const grenadeEvent = pgTable("grenade_event", {
   throwerPlayerId: uuid("thrower_player_id").references(() => player.id),
   throwerTeamId: uuid("thrower_team_id").references(() => matchTeam.id),
   grenadeType: text("grenade_type").notNull(),
+  thrownDemoTime: doublePrecision("thrown_demo_time"),
   demoTime: doublePrecision("demo_time"),
   startX: doublePrecision("start_x"),
   startY: doublePrecision("start_y"),

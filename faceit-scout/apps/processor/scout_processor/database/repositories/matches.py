@@ -206,6 +206,13 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
         session.flush()
     log_persist_stage("rounds", stage_started_at, parsed, rounds=len(round_rows))
 
+    player_team_by_steam_id = {
+        parsed_player.steam_id: teams_by_number[parsed_team.team_number].id
+        for parsed_team in parsed.teams
+        for parsed_player in parsed_team.players
+        if parsed_team.team_number in teams_by_number
+    }
+
     stage_started_at = perf_counter()
     kill_rows = []
     for event in parsed.kills:
@@ -247,7 +254,9 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
                 round_id=rounds_by_number.get(event.round_number).id if event.round_number in rounds_by_number else None,
                 sequence_number=event.sequence_number,
                 thrower_player_id=player.id if player else None,
+                thrower_team_id=player_team_by_steam_id.get(event.thrower_steam_id) if event.thrower_steam_id else None,
                 grenade_type=event.grenade_type,
+                thrown_demo_time=event.thrown_demo_time,
                 demo_time=event.demo_time,
                 start_x=event.start_x,
                 start_y=event.start_y,
@@ -264,12 +273,6 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
     log_persist_stage("events", stage_started_at, parsed, kills=len(kill_rows), bombs=len(bomb_rows), grenades=len(grenade_rows))
 
     stage_started_at = perf_counter()
-    player_team_by_steam_id = {
-        parsed_player.steam_id: teams_by_number[parsed_team.team_number].id
-        for parsed_team in parsed.teams
-        for parsed_player in parsed_team.players
-        if parsed_team.team_number in teams_by_number
-    }
     sample_rows = []
     for sample in parsed.position_samples:
         player = players_by_steam_id.get(sample.steam_id)

@@ -11,6 +11,7 @@ from scout_processor.parsing.event_extractors import first_present
 from scout_processor.parsing.parser_models import ParsedDemo, ParsedGrenadeEvent, ParsedKillEvent, ParsedPlayer, ParsedPositionSample, ParsedRound, ParsedTeam
 
 FACEIT_UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+OPENING_SAMPLE_WINDOW_SECONDS = 30
 
 
 def extract_faceit_match_id(file_name: str) -> str | None:
@@ -79,7 +80,7 @@ class DemoParser:
             kills = []
             if os.getenv("PARSE_FULL_SCOREBOARD", "false").lower() == "true":
                 kills = self._apply_scoreboard_stats(parser, players, match_start_tick)
-            position_samples = self._parse_position_samples(parser, players, rounds)
+            position_samples = self._parse_position_samples(parser, players, rounds, int(tick_rate or 64))
             grenades = self._parse_grenades(parser, rounds, match_start_tick)
             self._apply_team_scores(teams, rounds)
         except Exception as exc:
@@ -332,18 +333,19 @@ class DemoParser:
         parser,
         players: list[ParsedPlayer],
         rounds: list[ParsedRound],
+        tick_rate: int = 64,
     ) -> list[ParsedPositionSample]:
         steam_ids = {player.steam_id for player in players}
-        selected_rounds = self._first_rounds_by_side(rounds)
+        selected_rounds = rounds if opening_rounds_enabled() else self._first_rounds_by_side(rounds)
         tick_to_round: dict[int, ParsedRound] = {}
         for round_result in selected_rounds:
             if round_result.started_at_demo_time is None or round_result.ended_at_demo_time is None:
                 continue
             start = int(round_result.started_at_demo_time)
-            end = int(round_result.ended_at_demo_time)
+            end = min(int(round_result.ended_at_demo_time), start + int(OPENING_SAMPLE_WINDOW_SECONDS * tick_rate))
             if end <= start:
                 continue
-            step = 6
+            step = max(1, round(tick_rate / 4))
             ticks = sorted(set([start, *range(start + step, end, step), end]))
             for tick in ticks:
                 tick_to_round[tick] = round_result
@@ -376,7 +378,7 @@ class DemoParser:
                     round_number=round_result.round_number,
                     side="T" if str(row.get("team_name")).upper() in ("T", "TERRORIST") else "CT",
                     tick=tick,
-                    seconds=round((tick - start_tick) / 64, 2),
+                    seconds=round((tick - start_tick) / tick_rate, 2),
                     steam_id=steam_id,
                     player_name=str(row.get("name") or steam_id),
                     x=float(row["X"]),
@@ -402,12 +404,11 @@ class DemoParser:
             "flashbang_detonate": "flashbang",
             "hegrenade_detonate": "hegrenade",
             "smokegrenade_detonate": "smokegrenade",
-            "smokegrenade_expired": "smokegrenade",
             "molotov_detonate": "molotov",
             "inferno_startburn": "molotov",
-            "inferno_expire": "molotov",
             "decoy_detonate": "decoy",
         }
+        thrown_events = self._parse_grenade_throws(parser, rounds, match_start_tick)
         events: list[ParsedGrenadeEvent] = []
         for event_name, grenade_type in event_names.items():
             try:
@@ -424,22 +425,26 @@ class DemoParser:
                 start_x = float_value(first_present(row, ["thrower_x", "start_x", "player_x"]))
                 start_y = float_value(first_present(row, ["thrower_y", "start_y", "player_y"]))
                 start_z = float_value(first_present(row, ["thrower_z", "start_z", "player_z"]))
+                thrower_steam_id = clean_steam_id(first_present(row, [
+                    "user_steamid",
+                    "thrower_steamid",
+                    "attacker_steamid",
+                    "player_steamid",
+                    "steamid",
+                ]))
+                round_number = self._round_number_for_tick(rounds, tick)
+                thrown = self._matching_grenade_throw(thrown_events, thrower_steam_id, grenade_type, tick, round_number)
                 events.append(
                     ParsedGrenadeEvent(
                         sequence_number=len(events) + 1,
-                        round_number=self._round_number_for_tick(rounds, tick),
-                        thrower_steam_id=clean_steam_id(first_present(row, [
-                            "user_steamid",
-                            "thrower_steamid",
-                            "attacker_steamid",
-                            "player_steamid",
-                            "steamid",
-                        ])),
+                        round_number=round_number,
+                        thrower_steam_id=thrower_steam_id,
                         grenade_type=grenade_type,
+                        thrown_demo_time=float(thrown["tick"]) if thrown else None,
                         demo_time=float(tick),
-                        start_x=start_x,
-                        start_y=start_y,
-                        start_z=start_z,
+                        start_x=float_value(thrown.get("x")) if thrown else start_x,
+                        start_y=float_value(thrown.get("y")) if thrown else start_y,
+                        start_z=float_value(thrown.get("z")) if thrown else start_z,
                         end_x=end_x,
                         end_y=end_y,
                         end_z=end_z,
@@ -449,6 +454,44 @@ class DemoParser:
         for index, event in enumerate(events, start=1):
             event.sequence_number = index
         return events
+
+    def _parse_grenade_throws(self, parser, rounds: list[ParsedRound], match_start_tick: int) -> list[dict]:
+        try:
+            rows = dataframe_to_rows(parser.parse_event("grenade_thrown"))
+        except Exception:
+            return []
+
+        throws = []
+        for row in rows:
+            tick = int(first_present(row, ["tick", "Tick"]) or 0)
+            if tick < match_start_tick:
+                continue
+            grenade_type = str(first_present(row, ["weapon", "grenade_type", "grenade", "entity"]) or "").lower()
+            throws.append({
+                "tick": tick,
+                "round_number": self._round_number_for_tick(rounds, tick),
+                "thrower_steam_id": clean_steam_id(first_present(row, [
+                    "user_steamid",
+                    "thrower_steamid",
+                    "player_steamid",
+                    "steamid",
+                ])),
+                "grenade_type": normalize_grenade_type(grenade_type),
+                "x": first_present(row, ["x", "X", "thrower_x", "player_x", "start_x"]),
+                "y": first_present(row, ["y", "Y", "thrower_y", "player_y", "start_y"]),
+                "z": first_present(row, ["z", "Z", "thrower_z", "player_z", "start_z"]),
+            })
+        return throws
+
+    def _matching_grenade_throw(self, throws: list[dict], thrower_steam_id: str | None, grenade_type: str, detonate_tick: int, round_number: int | None) -> dict | None:
+        matching = [
+            row for row in throws
+            if row["tick"] <= detonate_tick
+            and (round_number is None or row.get("round_number") == round_number)
+            and (not thrower_steam_id or row.get("thrower_steam_id") == thrower_steam_id)
+            and (not row.get("grenade_type") or row.get("grenade_type") == normalize_grenade_type(grenade_type))
+        ]
+        return max(matching, key=lambda row: row["tick"], default=None)
 
     def _round_number_for_tick(self, rounds: list[ParsedRound], tick: int) -> int | None:
         for round_result in rounds:
@@ -466,3 +509,22 @@ def float_value(value) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def opening_rounds_enabled() -> bool:
+    return os.getenv("OPENING_TENDENCY_PREVIEWS_ENABLED", "false").lower() == "true"
+
+
+def normalize_grenade_type(value: str) -> str:
+    lower = value.lower().replace("weapon_", "")
+    if "flash" in lower:
+        return "flashbang"
+    if "smoke" in lower:
+        return "smokegrenade"
+    if "molotov" in lower or "inc" in lower or "inferno" in lower:
+        return "molotov"
+    if "he" in lower or "frag" in lower:
+        return "hegrenade"
+    if "decoy" in lower:
+        return "decoy"
+    return lower
