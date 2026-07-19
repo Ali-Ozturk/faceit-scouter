@@ -196,6 +196,7 @@ type RoundPathPreviewProps = {
   samples: PositionSample[];
   utilities?: UtilitySample[];
   showHeatmap?: boolean;
+  heatmapDefaultEnabled?: boolean;
   showCommonPositions?: boolean;
   commonPositionSamples?: PositionSample[];
   allowFullscreen?: boolean;
@@ -245,6 +246,13 @@ export function RoundPathPreview(props: RoundPathPreviewProps) {
       >
         Radar preview
       </div>
+      <div className="mt-2 flex items-center gap-3">
+        <div className="h-8 w-14 rounded border border-slate-200 bg-slate-50" />
+        <div className="h-2 flex-1 rounded bg-slate-100" />
+      </div>
+      {props.filterGroups?.length ? (
+        <div className="mt-2 h-14 rounded bg-slate-50" />
+      ) : null}
     </div>
   );
 }
@@ -255,6 +263,7 @@ function RoundPathPreviewInner({
   samples,
   utilities = [],
   showHeatmap = false,
+  heatmapDefaultEnabled,
   showCommonPositions = false,
   commonPositionSamples,
   allowFullscreen = false,
@@ -264,7 +273,7 @@ function RoundPathPreviewInner({
 }: RoundPathPreviewProps) {
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
-  const [heatmapEnabled, setHeatmapEnabled] = useState(showHeatmap);
+  const [heatmapEnabled, setHeatmapEnabled] = useState(heatmapDefaultEnabled ?? showHeatmap);
   const [commonPositionsEnabled, setCommonPositionsEnabled] = useState(showCommonPositions);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [enabledGroups, setEnabledGroups] = useState(() => new Set(filterGroups.map((group) => group.id)));
@@ -408,7 +417,7 @@ function RoundPathPreviewInner({
   const preview = fullscreenOpen ? null : (
     <div className={density === "modal"
       ? "flex max-h-[calc(100vh-96px)] w-[min(96vw,fit-content)] max-w-[1200px] flex-col overflow-hidden bg-white"
-      : "rounded border border-slate-200 bg-white p-3"}
+      : `rounded border border-slate-200 bg-white ${density === "compact" ? "p-2.5" : "p-3"}`}
     >
       <div className={`mb-2 flex items-center gap-3 ${density === "modal" ? "justify-end" : "justify-between"}`}>
         {density !== "modal" ? <h3 className="text-sm font-semibold">{title}</h3> : null}
@@ -546,7 +555,7 @@ function RoundPathPreviewInner({
           ))}
         </svg>
       </div>
-      <div className="mt-3 flex items-center gap-3">
+      <div className={`${density === "compact" ? "mt-2" : "mt-3"} flex items-center gap-3`}>
         <button
           type="button"
           onClick={() => {
@@ -571,7 +580,7 @@ function RoundPathPreviewInner({
         />
       </div>
       {filterGroups.length ? (
-        <div className="mt-3 space-y-2 text-xs">
+        <div className={`${density === "compact" ? "mt-2 space-y-1.5" : "mt-3 space-y-2"} text-xs`}>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -677,6 +686,7 @@ function RoundPathPreviewInner({
                 samples={samples}
                 utilities={utilities}
                 showHeatmap={showHeatmap}
+                heatmapDefaultEnabled={heatmapDefaultEnabled}
                 showCommonPositions={showCommonPositions}
                 commonPositionSamples={commonPositionSamples}
                 allowFullscreen={false}
@@ -703,7 +713,7 @@ function radarContainerStyle(density: "default" | "compact" | "modal"): CSSPrope
   }
   if (density === "compact") {
     return {
-      width: "min(100%, 560px)",
+      width: "min(100%, 500px)",
       aspectRatio: "1 / 1",
       marginInline: "auto",
     };

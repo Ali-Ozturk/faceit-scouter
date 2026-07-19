@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
-import { Activity, CalendarDays, Crosshair, ExternalLink, Layers3, Map as MapIcon, Shield, Swords, Users } from "lucide-react";
+import { Activity, CalendarDays, Crosshair, ExternalLink, Layers3, Map as MapIcon, Swords, Users } from "lucide-react";
 import { getTeamMap } from "@/db/queries/teams";
 import { formatDate } from "@/lib/format";
+import { GoToTopButton } from "@/components/go-to-top-button";
+import { OpeningMatrixNav } from "@/components/opening-matrix-nav";
 import { RoundPathPreview } from "@/components/round-path-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,9 +27,22 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
   const sampledRounds = uniqueRoundCount(data.samples);
   const latestPlayedAt = data.matches[0]?.playedAt ?? null;
   const demoFilterGroups = demoGroupsForMatches(data.matches);
+  const openingNavItems = data.members.map((member) => {
+    const playerSamples = data.samples.filter((sample) => sample.playerId === member.id && sample.seconds <= openingWindowSeconds);
+    const playerUtilities = data.utilities.filter((utility) => utility.throwerPlayerId === member.id);
+    return {
+      id: playerSectionId(member.id),
+      nickname: member.nickname,
+      rounds: uniqueRoundCount(playerSamples),
+      tRounds: uniqueRoundCount(playerSamples.filter((sample) => sample.side === "T")),
+      ctRounds: uniqueRoundCount(playerSamples.filter((sample) => sample.side === "CT")),
+      utilityEvents: playerUtilities.length,
+    };
+  });
 
   return (
     <div className="space-y-6">
+      <GoToTopButton />
       <header className="overflow-hidden rounded-lg border bg-white shadow-sm">
         <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_520px]">
           <div className="p-5">
@@ -139,62 +154,67 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
                 detail={`Path/util: first ${openingWindowSeconds}s. Positions: ${defaultPositionStartSeconds}-${defaultPositionEndSeconds}s defaults.`}
                 tone="cyan"
               />
-              <div className="grid gap-4 xl:grid-cols-2">
-                {data.members.map((member) => {
-                  const allPlayerSamples = data.samples.filter((sample) => sample.playerId === member.id);
-                  const playerSamples = allPlayerSamples.filter((sample) => sample.seconds <= openingWindowSeconds);
-                  const defaultPositionSamples = allPlayerSamples.filter((sample) => sample.seconds >= defaultPositionStartSeconds && sample.seconds <= defaultPositionEndSeconds);
-                  const playerUtilities = data.utilities.filter((utility) => utility.throwerPlayerId === member.id);
-                  return (
-                    <article id={playerSectionId(member.id)} key={member.id} className="scroll-mt-24 rounded-lg border bg-white p-4 shadow-sm target:animate-[targetPulse_1.8s_ease-in-out_2] target:border-cyan-400 target:ring-2 target:ring-cyan-200">
-                      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <h3 className="flex items-center gap-2 text-base font-semibold">
-                            <span className="h-2.5 w-2.5 rounded-full bg-gradient-to-br from-cyan-400 to-violet-500" />
-                            {member.nickname}
-                          </h3>
-                          <p className="text-xs text-muted-foreground">
-                            {uniqueRoundCount(playerSamples)} rounds - {playerUtilities.length} utility events
-                          </p>
+              <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)]">
+                <div className="hidden xl:block">
+                  <OpeningMatrixNav items={openingNavItems} />
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1 xl:hidden">
+                  {openingNavItems.map((item) => (
+                    <a key={item.id} href={`#${item.id}`} className="shrink-0 rounded-md border bg-white px-3 py-2 text-sm font-medium shadow-sm">
+                      {item.nickname}
+                      <span className="ml-2 text-xs text-amber-700">T: {item.tRounds}</span>
+                      <span className="ml-2 text-xs text-cyan-700">CT: {item.ctRounds}</span>
+                    </a>
+                  ))}
+                </div>
+                <div className="space-y-4">
+                  {data.members.map((member) => {
+                    const allPlayerSamples = data.samples.filter((sample) => sample.playerId === member.id);
+                    const playerSamples = allPlayerSamples.filter((sample) => sample.seconds <= openingWindowSeconds);
+                    const defaultPositionSamples = allPlayerSamples.filter((sample) => sample.seconds >= defaultPositionStartSeconds && sample.seconds <= defaultPositionEndSeconds);
+                    const playerUtilities = data.utilities.filter((utility) => utility.throwerPlayerId === member.id);
+                    return (
+                      <article id={playerSectionId(member.id)} key={member.id} className="scroll-mt-24 rounded-lg border bg-white p-3 shadow-sm target:animate-[targetPulse_1.8s_ease-in-out_2] target:border-cyan-400 target:ring-2 target:ring-cyan-200">
+                        <div className="grid gap-3 lg:grid-cols-2">
+                          <RoundPathPreview
+                            title="T openings"
+                            mapName={data.mapName}
+                            samples={openingSamplesForPlayer(playerSamples, "T", member.id)}
+                            utilities={openingUtilitiesForSamples(playerUtilities, playerSamples.filter((sample) => sample.side === "T")).map((utility) => ({
+                              ...utility,
+                              filterGroup: demoGroupId(utility.matchId),
+                            }))}
+                            commonPositionSamples={openingSamplesForPlayer(defaultPositionSamples, "T", member.id)}
+                            allowFullscreen
+                            showHeatmap
+                            heatmapDefaultEnabled={false}
+                            showCommonPositions
+                            density="compact"
+                            filterGroups={demoFilterGroups}
+                            maxLegendItems={4}
+                          />
+                          <RoundPathPreview
+                            title="CT openings"
+                            mapName={data.mapName}
+                            samples={openingSamplesForPlayer(playerSamples, "CT", member.id)}
+                            utilities={openingUtilitiesForSamples(playerUtilities, playerSamples.filter((sample) => sample.side === "CT")).map((utility) => ({
+                              ...utility,
+                              filterGroup: demoGroupId(utility.matchId),
+                            }))}
+                            commonPositionSamples={openingSamplesForPlayer(defaultPositionSamples, "CT", member.id)}
+                            allowFullscreen
+                            showHeatmap
+                            heatmapDefaultEnabled={false}
+                            showCommonPositions
+                            density="compact"
+                            filterGroups={demoFilterGroups}
+                            maxLegendItems={4}
+                          />
                         </div>
-                        <div className="flex gap-2">
-                          <SideBadge side="T" count={uniqueRoundCount(playerSamples.filter((sample) => sample.side === "T"))} />
-                          <SideBadge side="CT" count={uniqueRoundCount(playerSamples.filter((sample) => sample.side === "CT"))} />
-                        </div>
-                      </div>
-                      <div className="grid gap-3 lg:grid-cols-2">
-                        <RoundPathPreview
-                          title="T openings"
-                          mapName={data.mapName}
-                          samples={openingSamplesForPlayer(playerSamples, "T", member.id)}
-                          utilities={openingUtilitiesForSamples(playerUtilities, playerSamples.filter((sample) => sample.side === "T")).map((utility) => ({
-                            ...utility,
-                            filterGroup: demoGroupId(utility.matchId),
-                          }))}
-                          commonPositionSamples={openingSamplesForPlayer(defaultPositionSamples, "T", member.id)}
-                          allowFullscreen
-                          showCommonPositions
-                          filterGroups={demoFilterGroups}
-                          maxLegendItems={4}
-                        />
-                        <RoundPathPreview
-                          title="CT openings"
-                          mapName={data.mapName}
-                          samples={openingSamplesForPlayer(playerSamples, "CT", member.id)}
-                          utilities={openingUtilitiesForSamples(playerUtilities, playerSamples.filter((sample) => sample.side === "CT")).map((utility) => ({
-                            ...utility,
-                            filterGroup: demoGroupId(utility.matchId),
-                          }))}
-                          commonPositionSamples={openingSamplesForPlayer(defaultPositionSamples, "CT", member.id)}
-                          allowFullscreen
-                          showCommonPositions
-                          filterGroups={demoFilterGroups}
-                          maxLegendItems={4}
-                        />
-                      </div>
-                    </article>
-                  );
-                })}
+                      </article>
+                    );
+                  })}
+                </div>
               </div>
             </section>
           ) : null}
@@ -271,16 +291,6 @@ function SectionTitle({ icon, title, detail, tone }: { icon: ReactNode; title: s
         </div>
       </div>
     </div>
-  );
-}
-
-function SideBadge({ side, count }: { side: string; count: number }) {
-  const Icon = side === "CT" ? Shield : Swords;
-  return (
-    <Badge variant={side === "CT" ? "tactical" : "warning"} className="gap-1.5">
-      <Icon className="h-3.5 w-3.5" />
-      {side}: {count}
-    </Badge>
   );
 }
 
