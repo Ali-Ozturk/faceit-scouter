@@ -2,9 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  background: #f8fafc;
-  color: #111827;
+@layer base {
+  :root {
+    --background: 220 33% 97%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --primary: 263 72% 56%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 244 54% 95%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 22% 94%;
+    --muted-foreground: 215 16% 42%;
+    --accent: 270 88% 94%;
+    --accent-foreground: 267 64% 35%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214 22% 86%;
+    --input: 214 22% 86%;
+    --ring: 263 72% 56%;
+    --radius: 0.5rem;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background:
+      linear-gradient(135deg, rgba(124, 58, 237, 0.12), rgba(14, 165, 233, 0.06) 34%, rgba(251, 191, 36, 0.08) 68%, rgba(248, 250, 252, 0) 100%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(248, 250, 252, 0.72)),
+      hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "tnum";
+  }
+}
+
+@layer components {
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+    backdrop-filter: blur(18px);
+  }
+
+  .soft-grid {
+    background-image:
+      linear-gradient(rgba(99, 102, 241, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(14, 165, 233, 0.08) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
 }
 
 a {

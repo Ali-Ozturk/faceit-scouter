@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { ReactNode } from "react";
+import { Activity, CalendarDays, Crosshair, ExternalLink, Layers3, Map as MapIcon, Shield, Swords, Users } from "lucide-react";
 import { getTeamMap } from "@/db/queries/teams";
 import { formatDate } from "@/lib/format";
-import { Table, Td, Th } from "@/components/table";
 import { RoundPathPreview } from "@/components/round-path-preview";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import type { PositionSample, PreviewFilterGroup, UtilitySample } from "@/components/round-path-preview";
 
 export const dynamic = "force-dynamic";
@@ -25,37 +28,77 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
 
   return (
     <div className="space-y-6">
-      <header className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_560px]">
-        <div>
-          <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-            <Link href={`/teams/${teamId}`} className="font-medium text-blue-700">Lineup</Link>
-            <span className="text-slate-400">/</span>
-            <span className="rounded border border-slate-200 bg-white px-2 py-1 font-medium">{data.mapName}</span>
+      <header className="overflow-hidden rounded-lg border bg-white shadow-sm">
+        <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_520px]">
+          <div className="p-5">
+            <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+              <Button asChild variant="outline" size="sm" className="bg-white">
+                <Link href={`/teams/${teamId}`}>
+                  <Users className="h-3.5 w-3.5" />
+                  Lineup
+                </Link>
+              </Button>
+              <Badge variant="outline" className="gap-1.5 border-cyan-200 bg-white text-cyan-700">
+                <MapIcon className="h-3.5 w-3.5" />
+                {data.mapName}
+              </Badge>
+              <Badge variant="outline" className="gap-1.5 border-amber-200 bg-white text-amber-700">
+                <CalendarDays className="h-3.5 w-3.5" />
+                Latest {formatDate(latestPlayedAt)}
+              </Badge>
+            </div>
+            <h1 className="max-w-5xl text-2xl font-semibold tracking-normal text-foreground">
+              {data.lineup.displayName}
+            </h1>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button asChild variant="secondary" size="sm" className="bg-slate-100 text-slate-800 hover:bg-violet-100 hover:text-violet-800">
+                <a href="#team-defaults">
+                  <Layers3 className="h-3.5 w-3.5" />
+                  Team defaults
+                </a>
+              </Button>
+              {openingTendencyPreviewsEnabled ? (
+                <Button asChild variant="secondary" size="sm" className="bg-slate-100 text-slate-800 hover:bg-cyan-100 hover:text-cyan-800">
+                  <a href="#openings">
+                    <Crosshair className="h-3.5 w-3.5" />
+                    Opening matrix
+                  </a>
+                </Button>
+              ) : null}
+              <Button asChild variant="secondary" size="sm" className="bg-slate-100 text-slate-800 hover:bg-amber-100 hover:text-amber-900">
+                <a href="#match-evidence">
+                  <Activity className="h-3.5 w-3.5" />
+                  Match evidence
+                </a>
+              </Button>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {data.members.map((member) => (
+                <a key={member.id} href={`#${playerSectionId(member.id)}`}>
+                  <Badge variant="outline" className="bg-white text-slate-700 hover:border-violet-300 hover:text-violet-700">
+                    {member.nickname}
+                  </Badge>
+                </a>
+              ))}
+            </div>
           </div>
-          <h1 className="text-3xl font-bold tracking-normal">{data.lineup.displayName}</h1>
-          <div className="mt-3 flex flex-wrap gap-2 text-sm text-slate-600">
-            {data.members.map((member) => (
-              <a
-                key={member.id}
-                href={`#${playerSectionId(member.id)}`}
-                className="rounded border border-slate-200 bg-white px-2.5 py-1 hover:border-blue-300 hover:text-blue-700"
-              >
-                {member.nickname}
-              </a>
-            ))}
+          <div className="grid grid-cols-2 border-t bg-white p-4 xl:border-l xl:border-t-0">
+            <Stat tone="violet" icon={<Layers3 className="h-4 w-4" />} label="Matches" value={data.matches.length} />
+            <Stat tone="amber" icon={<Swords className="h-4 w-4" />} label="Rounds" value={totalRounds} />
+            <Stat tone="cyan" icon={<Activity className="h-4 w-4" />} label="Samples" value={sampledRounds} />
+            <Stat tone="rose" icon={<Users className="h-4 w-4" />} label="Players" value={data.members.length} />
           </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Stat label="Matches" value={data.matches.length} />
-          <Stat label="Rounds" value={totalRounds} />
-          <Stat label="Sampled" value={sampledRounds} />
-          <Stat label="Latest" value={formatDate(latestPlayedAt)} />
         </div>
       </header>
 
-      <div className="space-y-5">
-          <section id="team-defaults" className="space-y-4">
-            <SectionTitle title="Team first round defaults" detail="Only the first T and first CT round from each demo" />
+      <div className="space-y-6">
+          <section id="team-defaults" className="space-y-4 scroll-mt-24">
+            <SectionTitle
+              icon={<Layers3 className="h-5 w-5" />}
+              title="Team first round defaults"
+              detail="Only the first T and first CT round from each demo"
+              tone="violet"
+            />
             <div className="grid gap-4 xl:grid-cols-2">
               <RoundPathPreview
                 title="T side default"
@@ -89,8 +132,13 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
           </section>
 
           {openingTendencyPreviewsEnabled ? (
-            <section id="openings" className="space-y-4">
-              <SectionTitle title="Opponent Opening Matrix" detail={`Path/util: first ${openingWindowSeconds}s. Positions: ${defaultPositionStartSeconds}-${defaultPositionEndSeconds}s defaults.`} />
+            <section id="openings" className="space-y-4 scroll-mt-24">
+              <SectionTitle
+                icon={<Crosshair className="h-5 w-5" />}
+                title="Opponent Opening Matrix"
+                detail={`Path/util: first ${openingWindowSeconds}s. Positions: ${defaultPositionStartSeconds}-${defaultPositionEndSeconds}s defaults.`}
+                tone="cyan"
+              />
               <div className="grid gap-4 xl:grid-cols-2">
                 {data.members.map((member) => {
                   const allPlayerSamples = data.samples.filter((sample) => sample.playerId === member.id);
@@ -98,15 +146,18 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
                   const defaultPositionSamples = allPlayerSamples.filter((sample) => sample.seconds >= defaultPositionStartSeconds && sample.seconds <= defaultPositionEndSeconds);
                   const playerUtilities = data.utilities.filter((utility) => utility.throwerPlayerId === member.id);
                   return (
-                    <article id={playerSectionId(member.id)} key={member.id} className="scroll-mt-6 rounded border border-slate-200 bg-white p-4 target:animate-[targetPulse_1.8s_ease-in-out_2] target:border-blue-400 target:ring-2 target:ring-blue-200">
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <article id={playerSectionId(member.id)} key={member.id} className="scroll-mt-24 rounded-lg border bg-white p-4 shadow-sm target:animate-[targetPulse_1.8s_ease-in-out_2] target:border-cyan-400 target:ring-2 target:ring-cyan-200">
+                      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                         <div>
-                          <h3 className="font-semibold">{member.nickname}</h3>
-                          <p className="text-xs text-slate-500">
+                          <h3 className="flex items-center gap-2 text-base font-semibold">
+                            <span className="h-2.5 w-2.5 rounded-full bg-gradient-to-br from-cyan-400 to-violet-500" />
+                            {member.nickname}
+                          </h3>
+                          <p className="text-xs text-muted-foreground">
                             {uniqueRoundCount(playerSamples)} rounds - {playerUtilities.length} utility events
                           </p>
                         </div>
-                        <div className="flex gap-2 text-xs">
+                        <div className="flex gap-2">
                           <SideBadge side="T" count={uniqueRoundCount(playerSamples.filter((sample) => sample.side === "T"))} />
                           <SideBadge side="CT" count={uniqueRoundCount(playerSamples.filter((sample) => sample.side === "CT"))} />
                         </div>
@@ -148,26 +199,31 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
             </section>
           ) : null}
 
-          <section id="match-evidence" className="space-y-3">
-            <SectionTitle title="Match Evidence" detail="Open a demo when you need to verify the read" />
+          <section id="match-evidence" className="space-y-3 scroll-mt-24">
+            <SectionTitle icon={<Activity className="h-5 w-5" />} title="Match Evidence" detail="Open a demo when you need to verify the read" tone="amber" />
             <div className="space-y-2">
               {data.matches.map((match, index) => {
                 const matchSamples = data.samples.filter((sample) => sample.matchTeamId === match.matchTeamId);
                 const tSamples = matchSamples.filter((sample) => sample.side === "T");
                 const ctSamples = matchSamples.filter((sample) => sample.side === "CT");
                 return (
-                  <details key={`preview-${match.matchTeamId}`} className="rounded border border-slate-200 bg-white">
-                    <summary className="grid cursor-pointer gap-2 px-4 py-3 text-sm md:grid-cols-[48px_minmax(0,1fr)_120px_110px_90px] md:items-center">
-                      <span className="font-semibold text-slate-500">#{index + 1}</span>
+                  <details key={`preview-${match.matchTeamId}`} className="rounded-lg border bg-white/82 shadow-sm shadow-slate-950/5 backdrop-blur">
+                    <summary className="grid cursor-pointer gap-2 px-4 py-3 text-sm md:grid-cols-[86px_minmax(0,1fr)_120px_110px_90px] md:items-center">
+                      <Badge variant="secondary">Game {index + 1}</Badge>
                       <span className="min-w-0">
                         <span className="block truncate font-medium">{match.displayName}</span>
-                        <span className="text-xs text-slate-500">{formatDate(match.playedAt)} - overlap {match.overlapCount}/5</span>
+                        <span className="text-xs text-muted-foreground">{formatDate(match.playedAt)} - overlap {match.overlapCount}/5</span>
                       </span>
                       <span>{match.team1Score ?? "-"} : {match.team2Score ?? "-"}</span>
                       <span>{match.roundCount} rounds</span>
-                      <Link className="font-medium text-blue-700" href={`/matches/${match.matchId}`}>Open</Link>
+                      <Button asChild variant="ghost" size="sm">
+                        <Link href={`/matches/${match.matchId}`}>
+                          Open
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </Link>
+                      </Button>
                     </summary>
-                    <div className="grid gap-3 border-t border-slate-100 p-4 lg:grid-cols-2">
+                    <div className="grid gap-3 border-t p-4 lg:grid-cols-2">
                       <RoundPathPreview title="First T round" mapName={data.mapName} samples={tSamples} utilities={utilitiesForSamples(data.utilities, tSamples)} />
                       <RoundPathPreview title="First CT round" mapName={data.mapName} samples={ctSamples} utilities={utilitiesForSamples(data.utilities, ctSamples)} />
                     </div>
@@ -181,26 +237,51 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
   );
 }
 
-function Stat({ label, value }: { label: string; value: string | number }) {
+function Stat({ icon, label, value, tone }: { icon: ReactNode; label: string; value: string | number; tone: "violet" | "cyan" | "amber" | "rose" }) {
+  const toneClass = {
+    violet: "text-violet-600",
+    cyan: "text-cyan-600",
+    amber: "text-amber-700",
+    rose: "text-rose-600",
+  }[tone];
   return (
-    <div className="rounded border border-slate-200 bg-white p-4">
-      <div className="text-xs font-medium uppercase text-slate-500">{label}</div>
-      <div className="mt-2 text-xl font-semibold">{value}</div>
+    <div className="border-b border-r p-4 last:border-r-0 even:border-r-0 [&:nth-last-child(-n+2)]:border-b-0">
+      <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase text-muted-foreground">
+        <span className={toneClass}>{icon}</span>
+        {label}
+      </div>
+      <div className="text-xl font-semibold text-slate-950">{value}</div>
     </div>
   );
 }
 
-function SectionTitle({ title, detail }: { title: string; detail: string }) {
+function SectionTitle({ icon, title, detail, tone }: { icon: ReactNode; title: string; detail: string; tone: "violet" | "cyan" | "amber" }) {
+  const toneClass = {
+    violet: "border-violet-200 bg-violet-100 text-violet-700 shadow-violet-500/10",
+    cyan: "border-cyan-200 bg-cyan-100 text-cyan-700 shadow-cyan-500/10",
+    amber: "border-amber-200 bg-amber-100 text-amber-800 shadow-amber-500/10",
+  }[tone];
   return (
-    <div className="flex flex-wrap items-end justify-between gap-2">
-      <h2 className="text-xl font-semibold">{title}</h2>
-      <p className="text-sm text-slate-500">{detail}</p>
+    <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex items-center gap-3">
+        <span className={`grid h-10 w-10 place-items-center rounded-lg border shadow-sm ${toneClass}`}>{icon}</span>
+        <div>
+          <h2 className="text-xl font-semibold">{title}</h2>
+          <p className="text-sm text-muted-foreground">{detail}</p>
+        </div>
+      </div>
     </div>
   );
 }
 
 function SideBadge({ side, count }: { side: string; count: number }) {
-  return <span className="rounded border border-slate-200 px-2 py-1">{side}: {count}</span>;
+  const Icon = side === "CT" ? Shield : Swords;
+  return (
+    <Badge variant={side === "CT" ? "tactical" : "warning"} className="gap-1.5">
+      <Icon className="h-3.5 w-3.5" />
+      {side}: {count}
+    </Badge>
+  );
 }
 
 function utilitiesForSamples(utilities: (UtilitySample & { matchId: string; roundNumber: number | null })[], samples: { matchId?: string; roundNumber?: number }[]): UtilitySample[] {
