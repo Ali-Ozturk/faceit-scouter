@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 export type PositionSample = {
@@ -190,29 +190,78 @@ export function toRadarPoint(sample: Pick<PositionSample, "x" | "y">, radar: Rad
   };
 }
 
-export function RoundPathPreview({
-  title,
-  mapName,
-  samples,
-  utilities = [],
-  showHeatmap = false,
-  showCommonPositions = false,
-  allowFullscreen = false,
-  density = "default",
-  filterGroups = [],
-  maxLegendItems = 10,
-}: {
+type RoundPathPreviewProps = {
   title: string;
   mapName: string;
   samples: PositionSample[];
   utilities?: UtilitySample[];
   showHeatmap?: boolean;
   showCommonPositions?: boolean;
+  commonPositionSamples?: PositionSample[];
   allowFullscreen?: boolean;
   density?: "default" | "compact" | "modal";
   filterGroups?: PreviewFilterGroup[];
   maxLegendItems?: number;
-}) {
+};
+
+export function RoundPathPreview(props: RoundPathPreviewProps) {
+  const density = props.density ?? "default";
+  const placeholderRef = useRef<HTMLDivElement | null>(null);
+  const [isNearViewport, setIsNearViewport] = useState(density === "modal");
+
+  useEffect(() => {
+    if (density === "modal") return;
+    if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
+      setIsNearViewport(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      setIsNearViewport(entries.some((entry) => entry.isIntersecting));
+    }, { rootMargin: "300px 0px" });
+
+    const node = placeholderRef.current;
+    if (node) observer.observe(node);
+    return () => observer.disconnect();
+  }, [density]);
+
+  if (isNearViewport) {
+    return (
+      <div ref={placeholderRef}>
+        <RoundPathPreviewInner {...props} />
+      </div>
+    );
+  }
+
+  return (
+    <div ref={placeholderRef} className="rounded border border-slate-200 bg-white p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold">{props.title}</h3>
+        <span className="text-xs text-slate-500">Loads when visible</span>
+      </div>
+      <div
+        className="grid place-items-center rounded bg-slate-950 text-xs font-medium text-slate-400"
+        style={radarContainerStyle(density)}
+      >
+        Radar preview
+      </div>
+    </div>
+  );
+}
+
+function RoundPathPreviewInner({
+  title,
+  mapName,
+  samples,
+  utilities = [],
+  showHeatmap = false,
+  showCommonPositions = false,
+  commonPositionSamples,
+  allowFullscreen = false,
+  density = "default",
+  filterGroups = [],
+  maxLegendItems = 10,
+}: RoundPathPreviewProps) {
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [heatmapEnabled, setHeatmapEnabled] = useState(showHeatmap);
@@ -233,6 +282,11 @@ export function RoundPathPreview({
     if (filterGroups.length === 0) return utilities;
     return utilities.filter((utility) => utility.filterGroup && enabledGroups.has(utility.filterGroup));
   }, [enabledGroups, filterGroups.length, utilities]);
+  const filteredCommonPositionSamples = useMemo(() => {
+    const source = commonPositionSamples ?? samples;
+    if (filterGroups.length === 0) return source;
+    return source.filter((sample) => sample.filterGroup && enabledGroups.has(sample.filterGroup));
+  }, [commonPositionSamples, enabledGroups, filterGroups.length, samples]);
   const baseColorKeys = useMemo(() => {
     const byTrack = new Map<string, string>();
     for (const sample of samples) {
@@ -267,8 +321,8 @@ export function RoundPathPreview({
     radar && heatmapEnabled ? buildHeatmapPoints(ordered, radar) : []
   ), [ordered, radar, heatmapEnabled]);
   const commonPositions = useMemo(() => (
-    radar && commonPositionsEnabled ? buildTopPositions(ordered, radar) : []
-  ), [ordered, radar, commonPositionsEnabled]);
+    radar && commonPositionsEnabled ? buildTopPositions(filteredCommonPositionSamples, radar) : []
+  ), [filteredCommonPositionSamples, radar, commonPositionsEnabled]);
   const diagnostics = useMemo(() => (
     radar ? buildPathDiagnostics(ordered, radar) : []
   ), [ordered, radar]);
@@ -290,14 +344,60 @@ export function RoundPathPreview({
 
   useEffect(() => {
     if (!fullscreenOpen) return;
+    setPlaying(false);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setFullscreenOpen(false);
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
   }, [fullscreenOpen]);
 
-  if (samples.length === 0) {
+  const visible = useMemo(() => ordered.filter((sample) => sample.seconds <= time), [ordered, time]);
+  const visibleByTrack = useMemo(() => {
+    const byTrack = new Map<string, PositionSample[]>();
+    for (const track of allTracks) byTrack.set(track.id, []);
+    for (const sample of visible) {
+      const id = sample.trackId ?? sample.playerName;
+      byTrack.get(id)?.push(sample);
+    }
+    return byTrack;
+  }, [allTracks, visible]);
+  const firstSampleByTrack = useMemo(() => {
+    const byTrack = new Map<string, PositionSample>();
+    for (const sample of ordered) {
+      const id = sample.trackId ?? sample.playerName;
+      if (!byTrack.has(id)) byTrack.set(id, sample);
+    }
+    return byTrack;
+  }, [ordered]);
+  const visibleUtilities = useMemo(() => filteredUtilities.filter((item) => {
+    const duration = item.durationSeconds ?? 2;
+    const flightStart = utilityFlightStart(item);
+    return flightStart <= time && time <= item.seconds + duration;
+  }), [filteredUtilities, time]);
+  const currentByTrack = useMemo(() => allTracks.map((track) => {
+    const playerSamples = visibleByTrack.get(track.id) ?? [];
+    return playerSamples[playerSamples.length - 1] ?? firstSampleByTrack.get(track.id);
+  }), [allTracks, firstSampleByTrack, visibleByTrack]);
+  const radarBoxStyle = radarContainerStyle(density);
+  const displayRadar = useMemo(() => (
+    radar ?? (samples.length ? resolveRadar(mapName, samples) : undefined)
+  ), [mapName, radar, samples]);
+  const trackSegmentsByTrack = useMemo(() => {
+    const byTrack = new Map<string, string[]>();
+    if (!displayRadar) return byTrack;
+    for (const track of allTracks) {
+      byTrack.set(track.id, buildTrackSegments(visibleByTrack.get(track.id) ?? [], displayRadar));
+    }
+    return byTrack;
+  }, [allTracks, displayRadar, visibleByTrack]);
+
+  if (samples.length === 0 || !displayRadar) {
     return (
       <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
         {title}: no path samples yet
@@ -305,22 +405,7 @@ export function RoundPathPreview({
     );
   }
 
-  const fallbackRadar = resolveRadar(mapName, samples);
-  const displayRadar = radar ?? fallbackRadar;
-
-  const visible = ordered.filter((sample) => sample.seconds <= time);
-  const visibleUtilities = filteredUtilities.filter((item) => {
-    const duration = item.durationSeconds ?? 2;
-    const flightStart = utilityFlightStart(item);
-    return flightStart <= time && time <= item.seconds + duration;
-  });
-  const currentByTrack = allTracks.map((track) => {
-    const playerSamples = visible.filter((sample) => (sample.trackId ?? sample.playerName) === track.id);
-    return playerSamples[playerSamples.length - 1] ?? ordered.find((sample) => (sample.trackId ?? sample.playerName) === track.id);
-  });
-  const radarBoxStyle = radarContainerStyle(density);
-
-  const preview = (
+  const preview = fullscreenOpen ? null : (
     <div className={`rounded border border-slate-200 bg-white p-3 ${density === "modal" ? "mx-auto flex max-h-full w-full max-w-[1100px] flex-col" : ""}`}>
       <div className="mb-2 flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">{title}</h3>
@@ -340,7 +425,7 @@ export function RoundPathPreview({
               onClick={() => setCommonPositionsEnabled((value) => !value)}
               className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:border-slate-400"
             >
-              Positions {commonPositionsEnabled ? "on" : "off"}
+              Defaults {commonPositionsEnabled ? "on" : "off"}
             </button>
           ) : null}
           <span className="text-xs text-slate-500">{time.toFixed(1)}s / {duration.toFixed(1)}s</span>
@@ -374,8 +459,7 @@ export function RoundPathPreview({
             </g>
           ))}
           {allTracks.map((track, index) => {
-            const playerSamples = visible.filter((sample) => (sample.trackId ?? sample.playerName) === track.id);
-            const segments = buildTrackSegments(playerSamples, displayRadar);
+            const segments = trackSegmentsByTrack.get(track.id) ?? [];
             return segments.map((segment, segmentIndex) => (
               <path
                 key={`${track.id}-${segmentIndex}`}
@@ -583,6 +667,7 @@ export function RoundPathPreview({
                 utilities={utilities}
                 showHeatmap={showHeatmap}
                 showCommonPositions={showCommonPositions}
+                commonPositionSamples={commonPositionSamples}
                 allowFullscreen={false}
                 density="modal"
                 filterGroups={filterGroups}

@@ -11,7 +11,7 @@ from scout_processor.parsing.event_extractors import first_present
 from scout_processor.parsing.parser_models import ParsedDemo, ParsedGrenadeEvent, ParsedKillEvent, ParsedPlayer, ParsedPositionSample, ParsedRound, ParsedTeam
 
 FACEIT_UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
-OPENING_SAMPLE_WINDOW_SECONDS = 30
+OPENING_SAMPLE_WINDOW_SECONDS = 90
 
 
 def extract_faceit_match_id(file_name: str) -> str | None:

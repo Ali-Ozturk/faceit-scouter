@@ -10,6 +10,8 @@ export const dynamic = "force-dynamic";
 
 const openingTendencyPreviewsEnabled = process.env.OPENING_TENDENCY_PREVIEWS_ENABLED === "true";
 const openingWindowSeconds = 30;
+const defaultPositionStartSeconds = 30;
+const defaultPositionEndSeconds = 90;
 
 export default async function TeamMapPage({ params }: { params: Promise<{ teamId: string; mapName: string }> }) {
   const { teamId, mapName } = await params;
@@ -54,10 +56,12 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
       <div className="space-y-5">
           {openingTendencyPreviewsEnabled ? (
             <section id="openings" className="space-y-4">
-              <SectionTitle title="Opponent Opening Matrix" detail={`First ${openingWindowSeconds}s from every stored round`} />
+              <SectionTitle title="Opponent Opening Matrix" detail={`Path/util: first ${openingWindowSeconds}s. Positions: ${defaultPositionStartSeconds}-${defaultPositionEndSeconds}s defaults.`} />
               <div className="grid gap-4 xl:grid-cols-2">
                 {data.members.map((member) => {
-                  const playerSamples = data.samples.filter((sample) => sample.playerId === member.id && sample.seconds <= openingWindowSeconds);
+                  const allPlayerSamples = data.samples.filter((sample) => sample.playerId === member.id);
+                  const playerSamples = allPlayerSamples.filter((sample) => sample.seconds <= openingWindowSeconds);
+                  const defaultPositionSamples = allPlayerSamples.filter((sample) => sample.seconds >= defaultPositionStartSeconds && sample.seconds <= defaultPositionEndSeconds);
                   const playerUtilities = data.utilities.filter((utility) => utility.throwerPlayerId === member.id);
                   return (
                     <article id={playerSectionId(member.id)} key={member.id} className="scroll-mt-6 rounded border border-slate-200 bg-white p-4 target:animate-[targetPulse_1.8s_ease-in-out_2] target:border-blue-400 target:ring-2 target:ring-blue-200">
@@ -79,6 +83,7 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
                           mapName={data.mapName}
                           samples={openingSamplesForPlayer(playerSamples, "T", member.id)}
                           utilities={openingUtilitiesForSamples(playerUtilities, playerSamples.filter((sample) => sample.side === "T"))}
+                          commonPositionSamples={openingSamplesForPlayer(defaultPositionSamples, "T", member.id)}
                           allowFullscreen
                           showCommonPositions
                           maxLegendItems={4}
@@ -88,6 +93,7 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
                           mapName={data.mapName}
                           samples={openingSamplesForPlayer(playerSamples, "CT", member.id)}
                           utilities={openingUtilitiesForSamples(playerUtilities, playerSamples.filter((sample) => sample.side === "CT"))}
+                          commonPositionSamples={openingSamplesForPlayer(defaultPositionSamples, "CT", member.id)}
                           allowFullscreen
                           showCommonPositions
                           maxLegendItems={4}

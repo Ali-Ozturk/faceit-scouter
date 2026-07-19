@@ -1,21 +1,88 @@
-.PHONY: up down logs migrate web processor test lint format reset
+COMPOSE ?= docker compose
+SERVICES := web processor postgres
+PRIMARY_GOAL := $(firstword $(MAKECMDGOALS))
+ARG := $(word 2,$(MAKECMDGOALS))
+
+.PHONY: help up build rebuild restart down down-v logs migrate dev-web dev-processor test lint format reset
+
+help:
+	@echo "Docker:"
+	@echo "  make up                 Start the stack"
+	@echo "  make build web          Build one service"
+	@echo "  make build all          Build all services"
+	@echo "  make rebuild web        Build and recreate one service"
+	@echo "  make rebuild all        Build and recreate all services"
+	@echo "  make restart web        Recreate one service from the current image"
+	@echo "  make restart all        Recreate all services from current images"
+	@echo "  make down               Stop the stack"
+	@echo "  make down V=1           Stop the stack and remove volumes"
+	@echo "  make down-v             Stop the stack and remove volumes"
+	@echo "  make logs               Follow compose logs"
+	@echo ""
+	@echo "Local dev:"
+	@echo "  make dev-web            Run the web dev server locally"
+	@echo "  make dev-processor      Run the processor locally"
+	@echo "  make test               Run processor and web tests"
 
 up:
-	docker compose up --build
+	$(COMPOSE) up -d
+
+build:
+ifeq ($(ARG),)
+	$(error Usage: make build <web|processor|postgres|all>)
+endif
+ifeq ($(ARG),all)
+	$(COMPOSE) build
+else ifneq ($(filter $(ARG),$(SERVICES)),$(ARG))
+	$(error Unknown service "$(ARG)". Expected one of: $(SERVICES), all)
+else
+	$(COMPOSE) build $(ARG)
+endif
+
+rebuild:
+ifeq ($(ARG),)
+	$(error Usage: make rebuild <web|processor|postgres|all>)
+endif
+ifeq ($(ARG),all)
+	$(COMPOSE) up -d --build --force-recreate
+else ifneq ($(filter $(ARG),$(SERVICES)),$(ARG))
+	$(error Unknown service "$(ARG)". Expected one of: $(SERVICES), all)
+else
+	$(COMPOSE) up -d --no-deps --build --force-recreate $(ARG)
+endif
+
+restart:
+ifeq ($(ARG),)
+	$(error Usage: make restart <web|processor|postgres|all>)
+endif
+ifeq ($(ARG),all)
+	$(COMPOSE) up -d --force-recreate
+else ifneq ($(filter $(ARG),$(SERVICES)),$(ARG))
+	$(error Unknown service "$(ARG)". Expected one of: $(SERVICES), all)
+else
+	$(COMPOSE) up -d --no-deps --force-recreate $(ARG)
+endif
 
 down:
-	docker compose down
+ifeq ($(V),1)
+	$(COMPOSE) down -v
+else
+	$(COMPOSE) down
+endif
+
+down-v:
+	$(COMPOSE) down -v
 
 logs:
-	docker compose logs -f
+	$(COMPOSE) logs -f
 
 migrate:
 	cd apps/web && npm run db:migrate
 
-web:
+dev-web:
 	cd apps/web && npm run dev
 
-processor:
+dev-processor:
 	cd apps/processor && python -m scout_processor.main
 
 test:
@@ -28,5 +95,12 @@ lint:
 format:
 	cd apps/processor && ruff format .
 
-reset:
-	docker compose down -v
+reset: down-v
+
+ifneq ($(filter build rebuild restart,$(PRIMARY_GOAL)),)
+ifneq ($(ARG),)
+.PHONY: $(ARG)
+$(ARG):
+	@:
+endif
+endif
