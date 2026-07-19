@@ -8,6 +8,8 @@ export type PositionSample = {
   colorKey?: string;
   markerLabel?: string;
   filterGroup?: string;
+  positionGroupKey?: string;
+  positionGroupLabel?: string;
   playerId?: string;
   matchId?: string;
   matchTeamId?: string;
@@ -51,6 +53,16 @@ export type PreviewFilterGroup = {
   id: string;
   label: string;
   detail?: string;
+};
+
+type TopPositionBucket = {
+  groupKey: string;
+  groupLabel: string;
+  xBin: number;
+  yBin: number;
+  xs: number[];
+  ys: number[];
+  rounds: Set<string>;
 };
 
 const colors = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c"];
@@ -184,6 +196,7 @@ export function RoundPathPreview({
   samples,
   utilities = [],
   showHeatmap = false,
+  showCommonPositions = false,
   allowFullscreen = false,
   density = "default",
   filterGroups = [],
@@ -194,6 +207,7 @@ export function RoundPathPreview({
   samples: PositionSample[];
   utilities?: UtilitySample[];
   showHeatmap?: boolean;
+  showCommonPositions?: boolean;
   allowFullscreen?: boolean;
   density?: "default" | "compact" | "modal";
   filterGroups?: PreviewFilterGroup[];
@@ -202,6 +216,7 @@ export function RoundPathPreview({
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [heatmapEnabled, setHeatmapEnabled] = useState(showHeatmap);
+  const [commonPositionsEnabled, setCommonPositionsEnabled] = useState(showCommonPositions);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [enabledGroups, setEnabledGroups] = useState(() => new Set(filterGroups.map((group) => group.id)));
 
@@ -218,6 +233,16 @@ export function RoundPathPreview({
     if (filterGroups.length === 0) return utilities;
     return utilities.filter((utility) => utility.filterGroup && enabledGroups.has(utility.filterGroup));
   }, [enabledGroups, filterGroups.length, utilities]);
+  const baseColorKeys = useMemo(() => {
+    const byTrack = new Map<string, string>();
+    for (const sample of samples) {
+      const id = sample.trackId ?? sample.playerName;
+      byTrack.set(id, sample.colorKey ?? id);
+    }
+    return [...new Set([...byTrack.entries()]
+      .sort((left, right) => left[0].localeCompare(right[0]))
+      .map((entry) => entry[1]))];
+  }, [samples]);
 
   const ordered = useMemo(() => [...filteredSamples].sort((a, b) => (
     a.seconds - b.seconds ||
@@ -236,12 +261,14 @@ export function RoundPathPreview({
       .sort((a, b) => a.label.localeCompare(b.label))
   }, [ordered]);
   const legendTracks = useMemo(() => allTracks.slice(0, maxLegendItems), [allTracks, maxLegendItems]);
-  const colorKeys = useMemo(() => [...new Set(allTracks.map((track) => track.colorKey))], [allTracks]);
-  const colorForTrack = (track: { colorKey: string }) => colors[Math.max(0, colorKeys.indexOf(track.colorKey)) % colors.length];
+  const colorForTrack = (track: { colorKey: string }) => colors[Math.max(0, baseColorKeys.indexOf(track.colorKey)) % colors.length];
   const radar = useMemo(() => (ordered.length ? resolveRadar(mapName, ordered) : undefined), [mapName, ordered]);
   const heatmapPoints = useMemo(() => (
     radar && heatmapEnabled ? buildHeatmapPoints(ordered, radar) : []
   ), [ordered, radar, heatmapEnabled]);
+  const commonPositions = useMemo(() => (
+    radar && commonPositionsEnabled ? buildTopPositions(ordered, radar) : []
+  ), [ordered, radar, commonPositionsEnabled]);
   const diagnostics = useMemo(() => (
     radar ? buildPathDiagnostics(ordered, radar) : []
   ), [ordered, radar]);
@@ -305,6 +332,15 @@ export function RoundPathPreview({
               className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:border-slate-400"
             >
               Heatmap {heatmapEnabled ? "on" : "off"}
+            </button>
+          ) : null}
+          {showCommonPositions ? (
+            <button
+              type="button"
+              onClick={() => setCommonPositionsEnabled((value) => !value)}
+              className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:border-slate-400"
+            >
+              Positions {commonPositionsEnabled ? "on" : "off"}
             </button>
           ) : null}
           <span className="text-xs text-slate-500">{time.toFixed(1)}s / {duration.toFixed(1)}s</span>
@@ -398,6 +434,29 @@ export function RoundPathPreview({
               </g>
             );
           })}
+          {commonPositions.map((position) => (
+            <g key={`${position.groupKey}-${position.rank}`}>
+              <circle
+                cx={position.x}
+                cy={position.y}
+                r={position.radius}
+                fill="#ef4444"
+                opacity="0.92"
+                stroke="#111827"
+                strokeWidth="3"
+              />
+              <text
+                x={position.x}
+                y={position.y + 5}
+                textAnchor="middle"
+                fill="white"
+                fontSize="16"
+                fontWeight="800"
+              >
+                {position.rank}
+              </text>
+            </g>
+          ))}
         </svg>
       </div>
       <div className="mt-3 flex items-center gap-3">
@@ -523,6 +582,7 @@ export function RoundPathPreview({
                 samples={samples}
                 utilities={utilities}
                 showHeatmap={showHeatmap}
+                showCommonPositions={showCommonPositions}
                 allowFullscreen={false}
                 density="modal"
                 filterGroups={filterGroups}
@@ -617,6 +677,66 @@ function heatColor(intensity: number) {
   if (intensity > 0.72) return "#ef4444";
   if (intensity > 0.42) return "#f97316";
   return "#facc15";
+}
+
+function buildTopPositions(samples: PositionSample[], radar: RadarConfig) {
+  const cellSize = 100;
+  const topN = 6;
+  const buckets = new Map<string, TopPositionBucket>();
+
+  for (const sample of samples) {
+    if (sample.alive === false || !Number.isFinite(sample.x) || !Number.isFinite(sample.y)) continue;
+    const groupKey = sample.positionGroupKey ?? sample.playerId ?? sample.colorKey ?? sample.playerName;
+    const groupLabel = sample.positionGroupLabel ?? sample.playerName;
+    const xBin = Math.floor(sample.x / cellSize);
+    const yBin = Math.floor(sample.y / cellSize);
+    const key = `${groupKey}:${xBin}:${yBin}`;
+    const bucket = buckets.get(key) ?? {
+      groupKey,
+      groupLabel,
+      xBin,
+      yBin,
+      xs: [],
+      ys: [],
+      rounds: new Set<string>(),
+    };
+    bucket.xs.push(sample.x);
+    bucket.ys.push(sample.y);
+    bucket.rounds.add(`${sample.matchId ?? "match"}:${sample.roundNumber ?? sample.tick ?? bucket.xs.length}`);
+    buckets.set(key, bucket);
+  }
+
+  const byGroup = new Map<string, TopPositionBucket[]>();
+  for (const bucket of buckets.values()) {
+    byGroup.set(bucket.groupKey, [...(byGroup.get(bucket.groupKey) ?? []), bucket]);
+  }
+
+  return [...byGroup.values()].flatMap((groupBuckets) => (
+    groupBuckets
+      .sort((left, right) => (
+        right.xs.length - left.xs.length ||
+        right.rounds.size - left.rounds.size
+      ))
+      .slice(0, topN)
+      .map((bucket, index) => {
+        const point = toRadarPoint({ x: median(bucket.xs), y: median(bucket.ys) }, radar);
+        const sampleShare = bucket.xs.length / Math.max(1, groupBuckets.reduce((total, item) => total + item.xs.length, 0));
+        return {
+          groupKey: bucket.groupKey,
+          groupLabel: bucket.groupLabel,
+          rank: index + 1,
+          x: point.x,
+          y: point.y,
+          radius: 14 + Math.min(10, sampleShare * 40),
+        };
+      })
+  ));
+}
+
+function median(values: number[]) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 function buildPathDiagnostics(samples: PositionSample[], radar: RadarConfig) {

@@ -80,6 +80,7 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
                           samples={openingSamplesForPlayer(playerSamples, "T", member.id)}
                           utilities={openingUtilitiesForSamples(playerUtilities, playerSamples.filter((sample) => sample.side === "T"))}
                           allowFullscreen
+                          showCommonPositions
                           maxLegendItems={4}
                         />
                         <RoundPathPreview
@@ -88,6 +89,7 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
                           samples={openingSamplesForPlayer(playerSamples, "CT", member.id)}
                           utilities={openingUtilitiesForSamples(playerUtilities, playerSamples.filter((sample) => sample.side === "CT"))}
                           allowFullscreen
+                          showCommonPositions
                           maxLegendItems={4}
                         />
                       </div>
@@ -110,6 +112,7 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
                   filterGroup: demoGroupId(utility.matchId),
                 }))}
                 showHeatmap
+                allowFullscreen
                 density="compact"
                 filterGroups={demoFilterGroups}
                 maxLegendItems={8}
@@ -123,6 +126,7 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
                   filterGroup: demoGroupId(utility.matchId),
                 }))}
                 showHeatmap
+                allowFullscreen
                 density="compact"
                 filterGroups={demoFilterGroups}
                 maxLegendItems={8}
@@ -201,7 +205,7 @@ function mergedSamplesForFirstSideRound(
       return {
         ...sample,
         trackId: `${sample.matchTeamId}-${sample.roundNumber}-${sample.playerName}`,
-        colorKey: `${sample.matchTeamId}-${sample.playerName}`,
+        colorKey: sample.playerId ?? sample.playerName,
         filterGroup: demoGroupId(sample.matchId),
         markerLabel: String(matchIndex),
         playerName: sample.playerName,
@@ -230,6 +234,8 @@ function openingSamplesForPlayer(samples: PositionSample[], side: string, player
       ...sample,
       trackId: `${sample.matchId}-${sample.roundNumber}-${playerId}`,
       colorKey: playerId,
+      positionGroupKey: playerId,
+      positionGroupLabel: sample.playerName,
       markerLabel: String(sample.roundNumber ?? ""),
       playerName: `Round ${sample.roundNumber}`,
     }));
