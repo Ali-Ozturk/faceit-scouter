@@ -84,6 +84,22 @@ describe("FACEIT discovery", () => {
     expect(result.candidates.map((candidate) => candidate.faceitMatchId)).toEqual(["new5", "old5", "new4"]);
   });
 
+  it("extracts candidate dates from alternate FACEIT timestamp fields", async () => {
+    const result = await discoverFaceitMatches(api({
+      matches: {
+        current: match("current", allies, opponents),
+        created: {
+          ...match("created", players(["x1", "x2", "x3", "x4", "x5"]), opponents),
+          started_at: undefined,
+          created_at: 1_720_000_000,
+        },
+      },
+      histories: historyForOpponents({ o1: ["created"], o2: ["created"], o3: ["created"], o4: ["created"], o5: ["created"] }),
+    }), { faceitMatchId: "current", requestingPlayerFaceitId: "a1" });
+
+    expect(result.candidates[0].playedAt?.getUTCFullYear()).toBe(2024);
+  });
+
   it("returns an empty result when no matches qualify", async () => {
     const result = await discoverFaceitMatches(api({
       matches: { current: match("current", allies, opponents) },

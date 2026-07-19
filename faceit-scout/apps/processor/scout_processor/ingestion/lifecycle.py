@@ -11,6 +11,7 @@ from scout_processor.database.models import ImportStatus
 from scout_processor.database.repositories.imports import ImportRepository
 from scout_processor.database.repositories.matches import persist_parsed_demo
 from scout_processor.errors.exceptions import ErrorCode, ProcessingError
+from scout_processor.faceit_metadata import FaceitMetadataError, fetch_match_played_at
 from scout_processor.ingestion.checksum import sha256_file
 from scout_processor.ingestion.decompression import decompress_if_needed
 from scout_processor.ingestion.file_claiming import claim_file, move_file
@@ -72,9 +73,13 @@ async def process_file(
 
         imports.update_status(imported.id, ImportStatus.PARSING, parser_name=settings.parser_name, parser_version=parser_version(), schema_version=settings.schema_version)
         logger.info("parse_started", worker=worker_name, import_id=str(imported.id), file_name=path.name)
-        stage_started_at = perf_counter()
+        parse_started_at = perf_counter()
         parsed = await asyncio.get_running_loop().run_in_executor(parse_executor, parse_demo_in_process, str(demo_path), checksum)
-        parse_duration_ms = duration_ms(stage_started_at)
+        parse_duration_ms = duration_ms(parse_started_at)
+        if parsed.faceit_match_id and not parsed.played_at:
+            stage_started_at = perf_counter()
+            parsed.played_at = await fetch_played_at(parsed.faceit_match_id, settings, worker_name, imported.id)
+            log_stage_timing("faceit_metadata", stage_started_at, worker_name, imported.id, path.name)
         logger.info("parse_finished", worker=worker_name, import_id=str(imported.id), file_name=path.name, map_name=parsed.map_name, duration_ms=parse_duration_ms)
 
         imports.update_status(imported.id, ImportStatus.PERSISTING)
@@ -109,6 +114,22 @@ async def _fail(import_id, source: Path, settings: Settings, imports: ImportRepo
         message = f"{message}; additionally failed to move file: {move_exc}"
     imports.update_status(import_id, ImportStatus.FAILED, current_path=str(failed_path), error_code=code, error_message=message)
     logger.error("import_failed", import_id=str(import_id), error_code=code, error_message=message)
+
+
+async def fetch_played_at(match_id: str, settings: Settings, worker_name: str | None, import_id) -> object:
+    if not settings.faceit_api_token:
+        logger.info("faceit_metadata_skipped", worker=worker_name, import_id=str(import_id), reason="missing_token")
+        return None
+    try:
+        played_at = await asyncio.to_thread(fetch_match_played_at, match_id, settings.faceit_api_token)
+    except FaceitMetadataError as exc:
+        logger.warning("faceit_metadata_failed", worker=worker_name, import_id=str(import_id), faceit_match_id=match_id, error=str(exc))
+        return None
+    if played_at:
+        logger.info("faceit_metadata_found", worker=worker_name, import_id=str(import_id), faceit_match_id=match_id, played_at=played_at.isoformat())
+    else:
+        logger.info("faceit_metadata_missing_date", worker=worker_name, import_id=str(import_id), faceit_match_id=match_id)
+    return played_at
 
 
 def duration_ms(started_at: float) -> int:

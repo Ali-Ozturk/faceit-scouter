@@ -60,6 +60,11 @@ def test_faceit_match_id_extraction():
     assert value == "2b2a3f77-0a37-4b74-96a3-7f03ae193491"
 
 
+def test_faceit_match_id_extraction_keeps_room_prefix():
+    value = extract_faceit_match_id("1-2b2a3f77-0a37-4b74-96a3-7f03ae193491.dem.zst")
+    assert value == "1-2b2a3f77-0a37-4b74-96a3-7f03ae193491"
+
+
 def test_lineup_fingerprint_is_order_independent():
     assert exact_lineup_fingerprint(["3", "1", "2"]) == exact_lineup_fingerprint(["2", "3", "1"])
 

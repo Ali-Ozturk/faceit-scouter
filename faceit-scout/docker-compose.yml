@@ -20,6 +20,7 @@ services:
       context: ./apps/web
     environment:
       DATABASE_URL: postgresql://faceit_scout:faceit_scout@postgres:5432/faceit_scout
+      FACEIT_API_TOKEN: ${FACEIT_API_TOKEN:-}
       OPENING_TENDENCY_PREVIEWS_ENABLED: ${OPENING_TENDENCY_PREVIEWS_ENABLED:-false}
     ports:
       - "3000:3000"
@@ -32,6 +33,7 @@ services:
       context: ./apps/processor
     environment:
       DATABASE_URL: postgresql://faceit_scout:faceit_scout@postgres:5432/faceit_scout
+      FACEIT_API_TOKEN: ${FACEIT_API_TOKEN:-}
       INCOMING_DIRECTORY: /data/incoming
       PROCESSING_DIRECTORY: /data/processing
       COMPLETED_DIRECTORY: /data/completed

@@ -406,10 +406,13 @@ function RoundPathPreviewInner({
   }
 
   const preview = fullscreenOpen ? null : (
-    <div className={`rounded border border-slate-200 bg-white p-3 ${density === "modal" ? "mx-auto flex max-h-full w-full max-w-[1100px] flex-col" : ""}`}>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <div className="flex items-center gap-2">
+    <div className={density === "modal"
+      ? "flex max-h-[calc(100vh-96px)] w-[min(96vw,fit-content)] max-w-[1200px] flex-col overflow-hidden bg-white"
+      : "rounded border border-slate-200 bg-white p-3"}
+    >
+      <div className={`mb-2 flex items-center gap-3 ${density === "modal" ? "justify-end" : "justify-between"}`}>
+        {density !== "modal" ? <h3 className="text-sm font-semibold">{title}</h3> : null}
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {showHeatmap ? (
             <button
               type="button"
@@ -647,19 +650,27 @@ function RoundPathPreviewInner({
     <>
       {preview}
       {fullscreenOpen ? (
-        <div className="fixed inset-0 z-50 bg-slate-950/85 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-          <div className="mx-auto flex h-full max-w-[min(1500px,96vw)] flex-col overflow-hidden rounded border border-slate-700 bg-slate-950 p-4 shadow-2xl">
-            <div className="mb-3 flex items-center justify-between gap-3 text-white">
-              <h2 className="text-lg font-semibold">{title}</h2>
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-slate-950/75 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setFullscreenOpen(false)}
+        >
+          <div
+            className="flex max-h-[calc(100vh-32px)] w-fit max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded border border-slate-200 bg-white p-3 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between gap-3 text-slate-900">
+              <h2 className="text-sm font-semibold">{title}</h2>
               <button
                 type="button"
                 onClick={() => setFullscreenOpen(false)}
-                className="rounded border border-white/30 px-3 py-1.5 text-sm font-medium hover:bg-white/10"
+                className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
               >
                 Close
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-hidden">
+            <div className="min-h-0 overflow-hidden">
               <RoundPathPreview
                 title={title}
                 mapName={mapName}
@@ -684,8 +695,7 @@ function RoundPathPreviewInner({
 function radarContainerStyle(density: "default" | "compact" | "modal"): CSSProperties {
   if (density === "modal") {
     return {
-      width: "min(100%, calc(100vh - 210px))",
-      maxWidth: "100%",
+      width: "min(calc(100vw - 96px), calc(100vh - 320px), 880px)",
       aspectRatio: "1 / 1",
       marginInline: "auto",
       flexShrink: 0,
@@ -740,28 +750,62 @@ function buildHeatmapPoints(samples: PositionSample[], radar: RadarConfig) {
   for (const sample of samples) {
     if (sample.alive === false) continue;
     const point = toRadarPoint(sample, radar);
-    const bucketX = Math.round(point.x / 34) * 34;
-    const bucketY = Math.round(point.y / 34) * 34;
+    const bucketX = Math.round(point.x / 28) * 28;
+    const bucketY = Math.round(point.y / 28) * 28;
     const key = `${bucketX}:${bucketY}`;
     const bucket = buckets.get(key) ?? { x: bucketX, y: bucketY, weight: 0 };
     bucket.weight += 1;
     buckets.set(key, bucket);
   }
 
-  const maxWeight = Math.max(1, ...[...buckets.values()].map((bucket) => bucket.weight));
-  return [...buckets.values()].map((bucket) => ({
-    ...bucket,
-    radius: 20 + (bucket.weight / maxWeight) * 46,
-    opacity: 0.18 + (bucket.weight / maxWeight) * 0.32,
-    coreOpacity: 0.28 + (bucket.weight / maxWeight) * 0.42,
-    color: heatColor(bucket.weight / maxWeight),
-  }));
+  const values = [...buckets.values()];
+  if (values.length === 0) return [];
+
+  const weights = values.map((bucket) => bucket.weight).sort((a, b) => a - b);
+  const maxWeight = weights[weights.length - 1] ?? 1;
+  const hotWeight = Math.max(1, percentile(weights, 0.86));
+  const floorWeight = Math.max(2, percentile(weights, 0.55));
+
+  return values
+    .map((bucket) => {
+      const intensity = heatIntensity(bucket.weight, floorWeight, hotWeight, maxWeight);
+      return {
+        ...bucket,
+        intensity,
+        radius: 7 + intensity * 24,
+        opacity: 0.02 + intensity * 0.28,
+        coreOpacity: Math.max(0, intensity - 0.45) * 0.32,
+        color: heatColor(intensity),
+      };
+    })
+    .filter((bucket) => bucket.intensity > 0.08);
 }
 
 function heatColor(intensity: number) {
-  if (intensity > 0.72) return "#ef4444";
-  if (intensity > 0.42) return "#f97316";
-  return "#facc15";
+  if (intensity > 0.86) return "#dc2626";
+  if (intensity > 0.58) return "#f97316";
+  if (intensity > 0.28) return "#facc15";
+  return "#fef3c7";
+}
+
+function heatIntensity(weight: number, floorWeight: number, hotWeight: number, maxWeight: number) {
+  if (weight < floorWeight) return 0;
+  const denominator = Math.max(1, hotWeight - floorWeight);
+  const percentileIntensity = clamp((weight - floorWeight) / denominator, 0, 1);
+  const peakBoost = maxWeight > hotWeight
+    ? clamp((weight - hotWeight) / Math.max(1, maxWeight - hotWeight), 0, 1) * 0.18
+    : 0;
+  return Math.pow(clamp(percentileIntensity + peakBoost, 0, 1), 1.45);
+}
+
+function percentile(sortedValues: number[], quantile: number) {
+  if (sortedValues.length === 0) return 0;
+  const index = Math.min(sortedValues.length - 1, Math.max(0, Math.floor((sortedValues.length - 1) * quantile)));
+  return sortedValues[index];
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function buildTopPositions(samples: PositionSample[], radar: RadarConfig) {

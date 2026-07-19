@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     schema_version: int = 1
     analysis_version: int = 1
     log_level: str = "INFO"
+    faceit_api_token: str | None = None
 
     @field_validator(
         "incoming_directory",

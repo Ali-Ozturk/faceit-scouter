@@ -87,6 +87,17 @@ function dateTime(value: Date | string | null | undefined) {
   return value ? new Date(value).getTime() : 0;
 }
 
+function faceitCandidateMatchCondition() {
+  return sql`
+    ${faceitAnalysisCandidate.processedMatchId} = ${csMatch.id}
+    or (
+      ${csMatch.faceitMatchId} is not null
+      and ${faceitAnalysisCandidate.faceitMatchId} is not null
+      and regexp_replace(${faceitAnalysisCandidate.faceitMatchId}, '^[0-9]-', '') = regexp_replace(${csMatch.faceitMatchId}, '^[0-9]-', '')
+    )
+  `;
+}
+
 async function getExactLineups(ids?: string[]): Promise<ExactLineup[]> {
   const lineupRows = await db.select().from(teamLineup).where(ids?.length ? inArray(teamLineup.id, ids) : undefined);
   if (lineupRows.length === 0) return [];
@@ -114,7 +125,7 @@ async function getExactLineups(ids?: string[]): Promise<ExactLineup[]> {
     .leftJoin(matchTeamLineup, eq(teamLineup.id, matchTeamLineup.teamLineupId))
     .leftJoin(matchTeam, eq(matchTeamLineup.matchTeamId, matchTeam.id))
     .leftJoin(csMatch, eq(matchTeam.matchId, csMatch.id))
-    .leftJoin(faceitAnalysisCandidate, eq(faceitAnalysisCandidate.processedMatchId, csMatch.id))
+    .leftJoin(faceitAnalysisCandidate, faceitCandidateMatchCondition())
     .where(inArray(teamLineup.id, lineupIds))
     .groupBy(teamLineup.id);
 
@@ -171,7 +182,7 @@ export async function getTeam(id: string) {
     .from(matchTeamLineup)
     .innerJoin(matchTeam, eq(matchTeamLineup.matchTeamId, matchTeam.id))
     .innerJoin(csMatch, eq(matchTeam.matchId, csMatch.id))
-    .leftJoin(faceitAnalysisCandidate, eq(faceitAnalysisCandidate.processedMatchId, csMatch.id))
+    .leftJoin(faceitAnalysisCandidate, faceitCandidateMatchCondition())
     .leftJoin(round, eq(round.matchId, csMatch.id))
     .where(inArray(matchTeamLineup.teamLineupId, exactLineups.map((row) => row.id)))
     .groupBy(csMatch.id, matchTeam.teamNumber, matchTeam.score)
@@ -213,7 +224,14 @@ export async function getTeamMap(id: string, mapName: string) {
     join cs_match cm on cm.id = mt.match_id
     join match_player mp on mp.match_team_id = mt.id
     left join round r on r.match_id = cm.id
-    left join faceit_analysis_candidate fac on fac.processed_match_id = cm.id
+    left join faceit_analysis_candidate fac on (
+      fac.processed_match_id = cm.id
+      or (
+        cm.faceit_match_id is not null
+        and fac.faceit_match_id is not null
+        and regexp_replace(fac.faceit_match_id, '^[0-9]-', '') = regexp_replace(cm.faceit_match_id, '^[0-9]-', '')
+      )
+    )
     where cm.map_name = ${mapName}
     group by cm.id, mt.id
     having count(distinct case when mp.player_id in (${memberList}) then mp.player_id end) >= 4

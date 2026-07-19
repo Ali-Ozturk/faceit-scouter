@@ -39,7 +39,7 @@ export class FaceitHttpClient implements FaceitApi {
       const record = item && typeof item === "object" ? item as Record<string, unknown> : {};
       return {
         matchId: stringValue(record.match_id ?? record.matchId ?? record.id) ?? "",
-        playedAt: dateValue(record.started_at ?? record.finished_at ?? record.played_at),
+        playedAt: dateValue(record.started_at ?? record.startedAt ?? record.finished_at ?? record.finishedAt ?? record.played_at ?? record.playedAt ?? record.created_at ?? record.createdAt),
       };
     }).filter((entry) => entry.matchId);
   }

@@ -215,7 +215,7 @@ function extractMap(match: unknown): string | null {
 
 function extractPlayedAt(match: unknown): Date | null {
   const root = getRecord(match);
-  return dateValue(root.started_at ?? root.finished_at ?? root.configured_at);
+  return dateValue(root.started_at ?? root.startedAt ?? root.finished_at ?? root.finishedAt ?? root.played_at ?? root.playedAt ?? root.configured_at ?? root.created_at ?? root.createdAt);
 }
 
 function latestDate(left: Date | null, right: Date | null) {

@@ -1,4 +1,4 @@
-from scout_processor.parsing.demo_parser import dataframe_to_rows, sanitize_json_value
+from scout_processor.parsing.demo_parser import dataframe_to_rows, extract_played_at_from_header, sanitize_json_value
 from scout_processor.parsing.demo_parser import DemoParser
 from scout_processor.parsing.parser_models import ParsedRound
 
@@ -63,6 +63,13 @@ def test_parse_players_uses_start_tick_team_membership_over_player_info():
 def test_sanitize_json_value_removes_null_bytes():
     value = sanitize_json_value({"demo_file_stamp": "PBDEMS2\x00", "nested": ["a\x00b"]})
     assert value == {"demo_file_stamp": "PBDEMS2", "nested": ["ab"]}
+
+
+def test_extract_played_at_from_header_accepts_faceit_timestamps():
+    value = extract_played_at_from_header({"started_at": 1_720_000_000})
+
+    assert value is not None
+    assert value.year == 2024
 
 
 def test_parse_grenades_extracts_utility_positions():

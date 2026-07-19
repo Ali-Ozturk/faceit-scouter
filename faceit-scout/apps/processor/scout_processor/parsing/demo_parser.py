@@ -2,6 +2,7 @@ import importlib.metadata
 import math
 import os
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 
 from scout_processor.analysis.match_summary import internal_match_fingerprint
@@ -10,12 +11,25 @@ from scout_processor.ingestion.checksum import sha256_file
 from scout_processor.parsing.event_extractors import first_present
 from scout_processor.parsing.parser_models import ParsedDemo, ParsedGrenadeEvent, ParsedKillEvent, ParsedPlayer, ParsedPositionSample, ParsedRound, ParsedTeam
 
-FACEIT_UUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+FACEIT_MATCH_ID_RE = re.compile(r"(?:\d-)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 OPENING_SAMPLE_WINDOW_SECONDS = 90
+PLAYED_AT_HEADER_KEYS = (
+    "played_at",
+    "playedAt",
+    "started_at",
+    "startedAt",
+    "finished_at",
+    "finishedAt",
+    "created_at",
+    "createdAt",
+    "date",
+    "match_date",
+    "matchDate",
+)
 
 
 def extract_faceit_match_id(file_name: str) -> str | None:
-    match = FACEIT_UUID_RE.search(file_name)
+    match = FACEIT_MATCH_ID_RE.search(file_name)
     return match.group(0).lower() if match else None
 
 
@@ -58,6 +72,35 @@ def clean_steam_id(value) -> str | None:
     return str(int(value)) if isinstance(value, float) else str(value)
 
 
+def parse_datetime_value(value) -> datetime | None:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if value <= 0:
+            return None
+        timestamp = value / 1000 if value > 10_000_000_000 else value
+        try:
+            parsed = datetime.fromtimestamp(timestamp, UTC)
+        except (OverflowError, OSError, ValueError):
+            return None
+        return parsed if 2000 <= parsed.year <= 2100 else None
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return None
+
+
+def extract_played_at_from_header(header: dict) -> datetime | None:
+    for key in PLAYED_AT_HEADER_KEYS:
+        parsed = parse_datetime_value(header.get(key))
+        if parsed:
+            return parsed
+    return None
+
+
 class DemoParser:
     def parse(self, demo_path: Path, checksum: str | None = None) -> ParsedDemo:
         try:
@@ -72,6 +115,7 @@ class DemoParser:
             parser = Demoparser2(str(demo_path))
             header = parser.parse_header()
             map_name = header.get("map_name") or header.get("map") or "unknown"
+            played_at = extract_played_at_from_header(header)
             tick_rate = header.get("tick_rate")
             match_start_tick = self._match_start_tick(parser)
             players = self._parse_players(parser, match_start_tick)
@@ -95,6 +139,7 @@ class DemoParser:
             faceit_match_id=faceit_match_id,
             internal_fingerprint=fingerprint,
             map_name=str(map_name),
+            played_at=played_at,
             tick_rate=int(tick_rate) if tick_rate else None,
             raw_metadata=sanitize_json_value(dict(header)),
             teams=teams,

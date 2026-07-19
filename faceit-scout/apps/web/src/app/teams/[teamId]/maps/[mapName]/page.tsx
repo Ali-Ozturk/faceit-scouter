@@ -54,58 +54,6 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
       </header>
 
       <div className="space-y-5">
-          {openingTendencyPreviewsEnabled ? (
-            <section id="openings" className="space-y-4">
-              <SectionTitle title="Opponent Opening Matrix" detail={`Path/util: first ${openingWindowSeconds}s. Positions: ${defaultPositionStartSeconds}-${defaultPositionEndSeconds}s defaults.`} />
-              <div className="grid gap-4 xl:grid-cols-2">
-                {data.members.map((member) => {
-                  const allPlayerSamples = data.samples.filter((sample) => sample.playerId === member.id);
-                  const playerSamples = allPlayerSamples.filter((sample) => sample.seconds <= openingWindowSeconds);
-                  const defaultPositionSamples = allPlayerSamples.filter((sample) => sample.seconds >= defaultPositionStartSeconds && sample.seconds <= defaultPositionEndSeconds);
-                  const playerUtilities = data.utilities.filter((utility) => utility.throwerPlayerId === member.id);
-                  return (
-                    <article id={playerSectionId(member.id)} key={member.id} className="scroll-mt-6 rounded border border-slate-200 bg-white p-4 target:animate-[targetPulse_1.8s_ease-in-out_2] target:border-blue-400 target:ring-2 target:ring-blue-200">
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <h3 className="font-semibold">{member.nickname}</h3>
-                          <p className="text-xs text-slate-500">
-                            {uniqueRoundCount(playerSamples)} rounds - {playerUtilities.length} utility events
-                          </p>
-                        </div>
-                        <div className="flex gap-2 text-xs">
-                          <SideBadge side="T" count={uniqueRoundCount(playerSamples.filter((sample) => sample.side === "T"))} />
-                          <SideBadge side="CT" count={uniqueRoundCount(playerSamples.filter((sample) => sample.side === "CT"))} />
-                        </div>
-                      </div>
-                      <div className="grid gap-3 lg:grid-cols-2">
-                        <RoundPathPreview
-                          title="T openings"
-                          mapName={data.mapName}
-                          samples={openingSamplesForPlayer(playerSamples, "T", member.id)}
-                          utilities={openingUtilitiesForSamples(playerUtilities, playerSamples.filter((sample) => sample.side === "T"))}
-                          commonPositionSamples={openingSamplesForPlayer(defaultPositionSamples, "T", member.id)}
-                          allowFullscreen
-                          showCommonPositions
-                          maxLegendItems={4}
-                        />
-                        <RoundPathPreview
-                          title="CT openings"
-                          mapName={data.mapName}
-                          samples={openingSamplesForPlayer(playerSamples, "CT", member.id)}
-                          utilities={openingUtilitiesForSamples(playerUtilities, playerSamples.filter((sample) => sample.side === "CT"))}
-                          commonPositionSamples={openingSamplesForPlayer(defaultPositionSamples, "CT", member.id)}
-                          allowFullscreen
-                          showCommonPositions
-                          maxLegendItems={4}
-                        />
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-          ) : null}
-
           <section id="team-defaults" className="space-y-4">
             <SectionTitle title="Team first round defaults" detail="Only the first T and first CT round from each demo" />
             <div className="grid gap-4 xl:grid-cols-2">
@@ -139,6 +87,66 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
               />
             </div>
           </section>
+
+          {openingTendencyPreviewsEnabled ? (
+            <section id="openings" className="space-y-4">
+              <SectionTitle title="Opponent Opening Matrix" detail={`Path/util: first ${openingWindowSeconds}s. Positions: ${defaultPositionStartSeconds}-${defaultPositionEndSeconds}s defaults.`} />
+              <div className="grid gap-4 xl:grid-cols-2">
+                {data.members.map((member) => {
+                  const allPlayerSamples = data.samples.filter((sample) => sample.playerId === member.id);
+                  const playerSamples = allPlayerSamples.filter((sample) => sample.seconds <= openingWindowSeconds);
+                  const defaultPositionSamples = allPlayerSamples.filter((sample) => sample.seconds >= defaultPositionStartSeconds && sample.seconds <= defaultPositionEndSeconds);
+                  const playerUtilities = data.utilities.filter((utility) => utility.throwerPlayerId === member.id);
+                  return (
+                    <article id={playerSectionId(member.id)} key={member.id} className="scroll-mt-6 rounded border border-slate-200 bg-white p-4 target:animate-[targetPulse_1.8s_ease-in-out_2] target:border-blue-400 target:ring-2 target:ring-blue-200">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h3 className="font-semibold">{member.nickname}</h3>
+                          <p className="text-xs text-slate-500">
+                            {uniqueRoundCount(playerSamples)} rounds - {playerUtilities.length} utility events
+                          </p>
+                        </div>
+                        <div className="flex gap-2 text-xs">
+                          <SideBadge side="T" count={uniqueRoundCount(playerSamples.filter((sample) => sample.side === "T"))} />
+                          <SideBadge side="CT" count={uniqueRoundCount(playerSamples.filter((sample) => sample.side === "CT"))} />
+                        </div>
+                      </div>
+                      <div className="grid gap-3 lg:grid-cols-2">
+                        <RoundPathPreview
+                          title="T openings"
+                          mapName={data.mapName}
+                          samples={openingSamplesForPlayer(playerSamples, "T", member.id)}
+                          utilities={openingUtilitiesForSamples(playerUtilities, playerSamples.filter((sample) => sample.side === "T")).map((utility) => ({
+                            ...utility,
+                            filterGroup: demoGroupId(utility.matchId),
+                          }))}
+                          commonPositionSamples={openingSamplesForPlayer(defaultPositionSamples, "T", member.id)}
+                          allowFullscreen
+                          showCommonPositions
+                          filterGroups={demoFilterGroups}
+                          maxLegendItems={4}
+                        />
+                        <RoundPathPreview
+                          title="CT openings"
+                          mapName={data.mapName}
+                          samples={openingSamplesForPlayer(playerSamples, "CT", member.id)}
+                          utilities={openingUtilitiesForSamples(playerUtilities, playerSamples.filter((sample) => sample.side === "CT")).map((utility) => ({
+                            ...utility,
+                            filterGroup: demoGroupId(utility.matchId),
+                          }))}
+                          commonPositionSamples={openingSamplesForPlayer(defaultPositionSamples, "CT", member.id)}
+                          allowFullscreen
+                          showCommonPositions
+                          filterGroups={demoFilterGroups}
+                          maxLegendItems={4}
+                        />
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
 
           <section id="match-evidence" className="space-y-3">
             <SectionTitle title="Match Evidence" detail="Open a demo when you need to verify the read" />
@@ -240,6 +248,7 @@ function openingSamplesForPlayer(samples: PositionSample[], side: string, player
       ...sample,
       trackId: `${sample.matchId}-${sample.roundNumber}-${playerId}`,
       colorKey: playerId,
+      filterGroup: demoGroupId(sample.matchId),
       positionGroupKey: playerId,
       positionGroupLabel: sample.playerName,
       markerLabel: String(sample.roundNumber ?? ""),
@@ -272,7 +281,7 @@ function demoGroupId(matchId: string | undefined) {
 function demoGroupsForMatches(matches: { matchId: string; playedAt: Date | string | null }[]): PreviewFilterGroup[] {
   return matches.map((match, index) => ({
     id: demoGroupId(match.matchId),
-    label: String(index + 1),
+    label: `Game ${index + 1}`,
     detail: formatDate(match.playedAt),
   }));
 }
