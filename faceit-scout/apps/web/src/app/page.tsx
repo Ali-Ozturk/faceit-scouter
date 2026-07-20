@@ -1,6 +1,8 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { getDashboard } from "@/db/queries/dashboard";
 import { formatDate } from "@/lib/format";
+import { ImportStageLogs, ImportStageSummary } from "@/components/import-stage-logs";
 import { StatusBadge } from "@/components/status-badge";
 import { Table, Td, Th } from "@/components/table";
 import { AutoRefresh } from "@/components/auto-refresh";
@@ -39,8 +41,22 @@ export default async function DashboardPage() {
           <Table>
             <thead><tr><Th>File</Th><Th>Status</Th><Th>Detected</Th></tr></thead>
             <tbody>
-              {data.recentImports.map((item) => (
-                <tr key={item.id}><Td>{item.fileName}</Td><Td><StatusBadge status={item.status} /></Td><Td>{formatDate(item.detectedAt)}</Td></tr>
+              {data.recentImports.map(({ import: item, stageLogs }) => (
+                <ImportLogRows
+                  key={item.id}
+                  colSpan={3}
+                  summary={(
+                    <>
+                      <div className="min-w-0">
+                        <span className="font-medium">{item.fileName}</span>
+                        <div className="mt-1"><ImportStageSummary logs={stageLogs} /></div>
+                      </div>
+                      <div><StatusBadge status={item.status} /></div>
+                      <div className="whitespace-nowrap text-slate-600">{formatDate(item.detectedAt)}</div>
+                    </>
+                  )}
+                  logs={<ImportStageLogs logs={stageLogs} />}
+                />
               ))}
             </tbody>
           </Table>
@@ -68,5 +84,22 @@ export default async function DashboardPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+function ImportLogRows({ summary, logs, colSpan }: { summary: ReactNode; logs: ReactNode; colSpan: number }) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="border-b border-slate-100 p-0">
+        <details className="group">
+          <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-3 text-sm hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+            {summary}
+          </summary>
+          <div className="border-t border-slate-100 bg-white p-3">
+            {logs}
+          </div>
+        </details>
+      </td>
+    </tr>
   );
 }

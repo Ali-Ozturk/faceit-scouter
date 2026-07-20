@@ -2,6 +2,7 @@ import { count, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { csMatch, importedDemo, teamLineup } from "@/db/schema";
 import { getTeams } from "@/db/queries/teams";
+import { withStageLogs } from "@/db/queries/imports";
 
 export async function getDashboard() {
   const [totalImports] = await db.select({ value: count() }).from(importedDemo);
@@ -13,7 +14,9 @@ export async function getDashboard() {
     .where(sql`${importedDemo.status} in ('DISCOVERED','WAITING_FOR_STABILITY','CLAIMED','DECOMPRESSING','PARSING','PERSISTING')`);
   const [matches] = await db.select({ value: count() }).from(csMatch);
   const [lineups] = await db.select({ value: count() }).from(teamLineup);
-  const recentImports = await db.select().from(importedDemo).orderBy(desc(importedDemo.detectedAt)).limit(8);
+  const recentImports = await withStageLogs(
+    (await db.select({ import: importedDemo }).from(importedDemo).orderBy(desc(importedDemo.detectedAt)).limit(8))
+  );
   const latestLineups = (await getTeams()).slice(0, 8);
 
   return {

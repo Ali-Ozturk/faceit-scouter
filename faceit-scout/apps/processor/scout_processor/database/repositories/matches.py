@@ -10,6 +10,7 @@ from scout_processor.database.models import (
     CsMatch,
     GrenadeEvent,
     ImportedDemo,
+    ImportStageLog,
     KillEvent,
     MatchPlayer,
     MatchTeam,
@@ -66,7 +67,7 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
             session.execute(delete(MatchTeamLineup).where(MatchTeamLineup.match_team_id.in_(existing_team_ids)))
             session.execute(delete(MatchTeam).where(MatchTeam.match_id == match.id))
             session.flush()
-    log_persist_stage("match_upsert", started_at, parsed)
+    log_persist_stage(session, imported_demo, "match_upsert", started_at, parsed)
 
     stage_started_at = perf_counter()
     players_by_steam_id: dict[str, Player] = {}
@@ -118,7 +119,7 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
     if new_players or new_lineups:
         session.add_all([*new_players, *new_lineups])
         session.flush()
-    log_persist_stage("lookup_players_lineups", stage_started_at, parsed, players=len(players_by_steam_id), lineups=len(lineup_by_fingerprint))
+    log_persist_stage(session, imported_demo, "lookup_players_lineups", stage_started_at, parsed, players=len(players_by_steam_id), lineups=len(lineup_by_fingerprint))
 
     stage_started_at = perf_counter()
     match_team_lineups = []
@@ -178,7 +179,7 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
     if match_players:
         session.add_all(match_players)
     session.flush()
-    log_persist_stage("teams_players", stage_started_at, parsed, teams=len(match_teams), players=len(match_players))
+    log_persist_stage(session, imported_demo, "teams_players", stage_started_at, parsed, teams=len(match_teams), players=len(match_players))
 
     stage_started_at = perf_counter()
     rounds_by_number = {}
@@ -204,7 +205,7 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
     if round_rows:
         session.add_all(round_rows)
         session.flush()
-    log_persist_stage("rounds", stage_started_at, parsed, rounds=len(round_rows))
+    log_persist_stage(session, imported_demo, "rounds", stage_started_at, parsed, rounds=len(round_rows))
 
     player_team_by_steam_id = {
         parsed_player.steam_id: teams_by_number[parsed_team.team_number].id
@@ -270,7 +271,7 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
     if kill_rows or bomb_rows or grenade_rows:
         session.add_all([*kill_rows, *bomb_rows, *grenade_rows])
         session.flush()
-    log_persist_stage("events", stage_started_at, parsed, kills=len(kill_rows), bombs=len(bomb_rows), grenades=len(grenade_rows))
+    log_persist_stage(session, imported_demo, "events", stage_started_at, parsed, kills=len(kill_rows), bombs=len(bomb_rows), grenades=len(grenade_rows))
 
     stage_started_at = perf_counter()
     sample_rows = []
@@ -297,10 +298,10 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
         )
     if sample_rows:
         session.bulk_insert_mappings(RoundPositionSample, sample_rows)
-    log_persist_stage("position_samples", stage_started_at, parsed, samples=len(sample_rows))
+    log_persist_stage(session, imported_demo, "position_samples", stage_started_at, parsed, samples=len(sample_rows))
 
     imported_demo.parsed_match_id = match.id
-    log_persist_stage("total", started_at, parsed)
+    log_persist_stage(session, imported_demo, "total", started_at, parsed)
     return match
 
 
@@ -308,11 +309,21 @@ def duration_ms(started_at: float) -> int:
     return round((perf_counter() - started_at) * 1000)
 
 
-def log_persist_stage(stage: str, started_at: float, parsed: ParsedDemo, **counts) -> None:
+def log_persist_stage(session: Session, imported_demo: ImportedDemo, stage: str, started_at: float, parsed: ParsedDemo, **counts) -> None:
+    elapsed_ms = duration_ms(started_at)
+    session.add(
+        ImportStageLog(
+            import_id=imported_demo.id,
+            source="persist",
+            stage=stage,
+            duration_ms=elapsed_ms,
+            metadata_json=counts or None,
+        )
+    )
     logger.info(
         "persist_stage_completed",
         stage=stage,
-        duration_ms=duration_ms(started_at),
+        duration_ms=elapsed_ms,
         faceit_match_id=parsed.faceit_match_id,
         map_name=parsed.map_name,
         **counts,

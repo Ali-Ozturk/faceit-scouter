@@ -54,6 +54,19 @@ class ImportedDemo(Base):
     duplicate_of_import_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 
+class ImportStageLog(Base):
+    __tablename__ = "import_stage_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    import_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("imported_demo.id", ondelete="CASCADE"))
+    source: Mapped[str] = mapped_column(Text)
+    stage: Mapped[str] = mapped_column(Text)
+    duration_ms: Mapped[int] = mapped_column(Integer)
+    worker: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class CsMatch(Base):
     __tablename__ = "cs_match"
 

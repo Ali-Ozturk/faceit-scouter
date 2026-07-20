@@ -80,6 +80,7 @@ const utilityColors: Record<string, string> = {
 };
 const MAX_SEGMENT_GAP_SECONDS = 1;
 const MAX_SEGMENT_DISTANCE = 180;
+const radarImageStyle: CSSProperties = { filter: "grayscale(1)" };
 
 export const mapRadars: Record<string, RadarConfig> = {
   de_ancient: {
@@ -455,7 +456,15 @@ function RoundPathPreviewInner({
         ) : null}
         <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${displayRadar.imageSize} ${displayRadar.imageSize}`}>
           {displayRadar.imageUrl ? (
-            <image href={displayRadar.imageUrl} x="0" y="0" width={displayRadar.imageSize} height={displayRadar.imageSize} opacity="0.9" />
+            <image
+              href={displayRadar.imageUrl}
+              x="0"
+              y="0"
+              width={displayRadar.imageSize}
+              height={displayRadar.imageSize}
+              opacity="0.9"
+              style={radarImageStyle}
+            />
           ) : (
             <rect x="0" y="0" width={displayRadar.imageSize} height={displayRadar.imageSize} fill="#020617" />
           )}

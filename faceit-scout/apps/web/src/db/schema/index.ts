@@ -49,6 +49,17 @@ export const importedDemo = pgTable("imported_demo", {
   duplicateOfImportId: uuid("duplicate_of_import_id"),
 });
 
+export const importStageLog = pgTable("import_stage_log", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  importId: uuid("import_id").notNull().references(() => importedDemo.id, { onDelete: "cascade" }),
+  source: text("source").notNull(),
+  stage: text("stage").notNull(),
+  durationMs: integer("duration_ms").notNull(),
+  worker: text("worker"),
+  metadataJson: jsonb("metadata_json"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const csMatch = pgTable("cs_match", {
   id: uuid("id").defaultRandom().primaryKey(),
   faceitMatchId: text("faceit_match_id"),

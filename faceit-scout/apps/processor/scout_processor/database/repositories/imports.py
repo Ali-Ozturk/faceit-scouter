@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from scout_processor.database.models import CsMatch, ImportedDemo, ImportStatus, RoundPositionSample
+from scout_processor.database.models import CsMatch, ImportedDemo, ImportStageLog, ImportStatus, RoundPositionSample
 
 
 class ImportRepository:
@@ -69,6 +69,28 @@ class ImportRepository:
                 row.processing_completed_at = datetime.now(UTC)
             if status == ImportStatus.FAILED:
                 row.failed_at = datetime.now(UTC)
+            session.commit()
+
+    def record_stage_log(
+        self,
+        import_id: UUID,
+        source: str,
+        stage: str,
+        duration_ms: int,
+        worker: str | None = None,
+        metadata: dict | None = None,
+    ) -> None:
+        with self.session_factory() as session:
+            session.add(
+                ImportStageLog(
+                    import_id=import_id,
+                    source=source,
+                    stage=stage,
+                    duration_ms=duration_ms,
+                    worker=worker,
+                    metadata_json=metadata,
+                )
+            )
             session.commit()
 
     def find_completed_by_checksum(self, checksum: str) -> ImportedDemo | None:
