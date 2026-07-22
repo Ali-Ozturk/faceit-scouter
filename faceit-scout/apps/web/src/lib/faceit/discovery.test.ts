@@ -24,6 +24,26 @@ describe("FACEIT discovery", () => {
     expect(result.candidates[0]).toMatchObject({ faceitMatchId: "shared4", sharedPlayerCount: 4, map: "de_inferno" });
   });
 
+  it("only includes three-player premades when requested", async () => {
+    const faceitApi = api({
+      matches: {
+        current: match("current", allies, opponents),
+        shared3: match("shared3", players(["x1", "x2", "x3", "x4", "x5"]), players(["o1", "o2", "o3", "z1", "z2"]), "de_inferno"),
+      },
+      histories: historyForOpponents({ o1: ["shared3"], o2: ["shared3"], o3: ["shared3"] }),
+    });
+
+    const strict = await discoverFaceitMatches(faceitApi, { faceitMatchId: "current", requestingPlayerFaceitId: "a1" });
+    const fallback = await discoverFaceitMatches(
+      faceitApi,
+      { faceitMatchId: "current", requestingPlayerFaceitId: "a1" },
+      { minimumSharedPlayers: 3 },
+    );
+
+    expect(strict.candidates).toEqual([]);
+    expect(fallback.candidates[0]).toMatchObject({ faceitMatchId: "shared3", sharedPlayerCount: 3 });
+  });
+
   it("rejects matches where shared players were split across teams", async () => {
     const result = await discoverFaceitMatches(api({
       matches: {

@@ -13,6 +13,7 @@ export type StoredAnalysis = {
   faceitMatchId: string;
   requestingPlayerFaceitId: string;
   selectedMap: string | null;
+  minimumSharedPlayers?: number;
   opponentFaction: string;
   createdAt: Date;
   opponents: FaceitPlayer[];
@@ -64,7 +65,7 @@ export async function createAnalysis(input: DiscoveryInput, result: DiscoveryRes
     })));
   }
 
-  return toStoredAnalysis(analysis, result.opponents, result.candidates, processedByFaceitId, result.warnings);
+  return toStoredAnalysis(analysis, result.opponents, result.candidates, processedByFaceitId, result.warnings, input.minimumSharedPlayers);
 }
 
 export async function getAnalysisById(id: string): Promise<StoredAnalysis | null> {
@@ -125,12 +126,14 @@ function toStoredAnalysis(
   candidates: DiscoveryCandidate[],
   processedByFaceitId: Map<string, string>,
   warnings: string[],
+  minimumSharedPlayers?: number,
 ): StoredAnalysis {
   return {
     analysisId: analysis.id,
     faceitMatchId: analysis.faceitMatchId,
     requestingPlayerFaceitId: analysis.requestingPlayerFaceitId,
     selectedMap: analysis.selectedMap,
+    minimumSharedPlayers,
     opponentFaction: analysis.opponentFaction,
     createdAt: analysis.createdAt,
     opponents,

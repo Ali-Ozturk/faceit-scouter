@@ -9,10 +9,12 @@ const downloadSubdirectoryInput = input("download-subdirectory");
 const matchIdInput = input("match-id");
 const selectedMapInput = input("selected-map");
 const message = element("message");
+const fallbackAnalysis = element("fallback-analysis") as HTMLElement;
 const results = element("results") as HTMLElement;
 const opponents = element("opponents");
 const candidateList = element("candidate-list");
 const startAnalysisButton = element("start-analysis") as HTMLButtonElement;
+const fallbackAnalysisButton = element("fallback-analysis-button") as HTMLButtonElement;
 const detectMatchButton = element("detect-match") as HTMLButtonElement;
 const downloadAllButton = element("download-all") as HTMLButtonElement;
 const downloadSelectedButton = element("download-selected") as HTMLButtonElement;
@@ -20,6 +22,7 @@ const selectAllButton = element("select-all") as HTMLButtonElement;
 const unselectAllButton = element("unselect-all") as HTMLButtonElement;
 
 let currentAnalysis: AnalysisResponse | null = null;
+let currentAnalysisMinimumSharedPlayers = 4;
 let selectedIds = new Set<string>();
 let statuses: DownloadStatus[] = [];
 
@@ -34,6 +37,7 @@ async function init() {
   matchIdInput.value = popupState.matchId;
   selectedMapInput.value = popupState.selectedMap;
   currentAnalysis = popupState.analysis;
+  currentAnalysisMinimumSharedPlayers = popupState.analysisMinimumSharedPlayers;
   selectedIds = new Set(popupState.selectedCandidateIds);
   statuses = await getStoredDownloadStatuses();
 
@@ -52,7 +56,8 @@ async function init() {
   matchIdInput.addEventListener("input", persistPopupState);
   selectedMapInput.addEventListener("input", persistPopupState);
   detectMatchButton.addEventListener("click", () => detectCurrentMatch());
-  startAnalysisButton.addEventListener("click", () => startAnalysis());
+  startAnalysisButton.addEventListener("click", () => startAnalysis(4));
+  fallbackAnalysisButton.addEventListener("click", () => startAnalysis(3));
   downloadAllButton.addEventListener("click", () => startDownloads([...unprocessedCandidateIds(currentAnalysis?.candidates ?? [])]));
   downloadSelectedButton.addEventListener("click", () => startDownloads([...selectedIds]));
   selectAllButton.addEventListener("click", () => {
@@ -99,12 +104,13 @@ async function detectCurrentMatch() {
   }
 }
 
-async function startAnalysis() {
+async function startAnalysis(minimumSharedPlayers = 4) {
   await saveSettings();
   const inputPayload = createAnalysisRequest({
     faceitMatchId: matchIdInput.value,
     requestingPlayerFaceitId: playerIdInput.value,
     selectedMap: selectedMapInput.value,
+    minimumSharedPlayers,
   });
 
   if (!inputPayload.faceitMatchId) {
@@ -117,19 +123,24 @@ async function startAnalysis() {
   }
 
   startAnalysisButton.disabled = true;
-  showMessage("Running opponent analysis...");
+  fallbackAnalysisButton.disabled = true;
+  fallbackAnalysis.hidden = true;
+  showMessage(minimumSharedPlayers === 3 ? "Running broader 3-player opponent analysis..." : "Running opponent analysis...");
   const response = await sendMessage<AnalysisResponse | { error: string }>({ type: "CREATE_ANALYSIS", input: inputPayload });
   startAnalysisButton.disabled = false;
+  fallbackAnalysisButton.disabled = false;
 
   if ("error" in response) {
     showMessage(response.error);
+    renderFallbackOffer();
     return;
   }
 
   currentAnalysis = response;
+  currentAnalysisMinimumSharedPlayers = response.minimumSharedPlayers ?? minimumSharedPlayers;
   selectedIds = unprocessedCandidateIds(response.candidates);
   statuses = [];
-  showMessage(response.candidates.length ? `Found ${response.candidates.length} candidate matches.` : "No qualifying historical matches found.");
+  showMessage(analysisMessage(response, currentAnalysisMinimumSharedPlayers));
   await persistPopupState();
   renderAnalysis();
 }
@@ -149,6 +160,7 @@ async function startDownloads(ids: string[]) {
 
 function renderAnalysis() {
   results.hidden = false;
+  renderFallbackOffer();
   opponents.innerHTML = "";
   for (const opponent of currentAnalysis?.opponents ?? []) {
     const chip = document.createElement("span");
@@ -191,6 +203,23 @@ function renderCandidates() {
   }
 }
 
+function renderFallbackOffer() {
+  fallbackAnalysis.hidden = !(
+    currentAnalysis &&
+    currentAnalysis.candidates.length === 0 &&
+    currentAnalysisMinimumSharedPlayers >= 4
+  );
+}
+
+function analysisMessage(response: AnalysisResponse, minimumSharedPlayers: number) {
+  if (response.candidates.length) {
+    return `Found ${response.candidates.length} candidate matches with ${minimumSharedPlayers}+ shared opponents.`;
+  }
+  return minimumSharedPlayers >= 4
+    ? "No 4-player historical matches found."
+    : "No 3-player historical matches found.";
+}
+
 function sendMessage<T>(payload: unknown): Promise<T> {
   return chrome.runtime.sendMessage(payload);
 }
@@ -205,6 +234,7 @@ async function persistPopupState() {
     matchId: matchIdInput.value,
     selectedMap: selectedMapInput.value,
     analysis: currentAnalysis,
+    analysisMinimumSharedPlayers: currentAnalysisMinimumSharedPlayers,
     selectedCandidateIds: [...selectedIds],
     message: message.textContent ?? "",
   });

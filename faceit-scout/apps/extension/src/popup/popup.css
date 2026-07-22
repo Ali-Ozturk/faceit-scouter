@@ -20,7 +20,8 @@ main {
 header,
 .result-heading,
 .actions,
-.compact-actions {
+.compact-actions,
+.fallback {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -49,6 +50,17 @@ h1 {
 
 h2 {
   font-size: 15px;
+}
+
+.fallback {
+  border-color: #bae6fd;
+  background: #f0f9ff;
+}
+
+.fallback p {
+  color: #0369a1;
+  font-size: 12px;
+  margin-top: 2px;
 }
 
 section {

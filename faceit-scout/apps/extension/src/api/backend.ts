@@ -10,6 +10,7 @@ export function createAnalysisRequest(input: BackendAnalysisInput) {
     faceitMatchId: input.faceitMatchId.trim(),
     requestingPlayerFaceitId: input.requestingPlayerFaceitId.trim(),
     ...(input.selectedMap?.trim() ? { selectedMap: input.selectedMap.trim() } : {}),
+    ...(input.minimumSharedPlayers ? { minimumSharedPlayers: input.minimumSharedPlayers } : {}),
   };
 }
 
@@ -32,6 +33,7 @@ export function mapAnalysisResponse(value: unknown): AnalysisResponse {
   const opponents = Array.isArray(record.opponents) ? record.opponents : [];
   return {
     analysisId: stringValue(record.analysisId) ?? "",
+    minimumSharedPlayers: numberValue(record.minimumSharedPlayers) ?? undefined,
     opponents: opponents.flatMap((item) => {
       const opponent = item && typeof item === "object" ? item as Record<string, unknown> : {};
       const faceitPlayerId = stringValue(opponent.faceitPlayerId);

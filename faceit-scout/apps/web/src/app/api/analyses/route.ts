@@ -8,6 +8,7 @@ const createAnalysisSchema = z.object({
   faceitMatchId: z.string().trim().min(1),
   requestingPlayerFaceitId: z.string().trim().min(1),
   selectedMap: z.string().trim().optional().nullable(),
+  minimumSharedPlayers: z.number().int().min(3).max(5).optional(),
 });
 
 export async function POST(request: Request) {
@@ -23,8 +24,9 @@ export async function POST(request: Request) {
       faceitMatchId: parsed.data.faceitMatchId,
       requestingPlayerFaceitId,
       selectedMap: normalizeMapName(parsed.data.selectedMap),
+      minimumSharedPlayers: parsed.data.minimumSharedPlayers ?? 4,
     };
-    const result = await discoverFaceitMatches(faceitClient, input);
+    const result = await discoverFaceitMatches(faceitClient, input, { minimumSharedPlayers: input.minimumSharedPlayers });
     const stored = await createAnalysis(input, result);
     return NextResponse.json(stored, { status: 201 });
   } catch (error) {

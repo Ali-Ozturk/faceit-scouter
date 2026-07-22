@@ -7,6 +7,7 @@ export const defaultPopupState: PopupState = {
   matchId: "",
   selectedMap: "",
   analysis: null,
+  analysisMinimumSharedPlayers: 4,
   selectedCandidateIds: [],
   message: "",
 };

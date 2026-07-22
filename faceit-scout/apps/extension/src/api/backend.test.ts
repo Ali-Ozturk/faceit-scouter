@@ -12,15 +12,18 @@ describe("backend API helpers", () => {
       faceitMatchId: " match ",
       requestingPlayerFaceitId: " player ",
       selectedMap: "",
+      minimumSharedPlayers: 3,
     })).toEqual({
       faceitMatchId: "match",
       requestingPlayerFaceitId: "player",
+      minimumSharedPlayers: 3,
     });
   });
 
   it("maps backend analysis responses defensively", () => {
     const mapped = mapAnalysisResponse({
       analysisId: "analysis",
+      minimumSharedPlayers: 3,
       opponents: [{ faceitPlayerId: "p1", nickname: "Opponent" }],
       candidates: [{
         faceitMatchId: "m1",
@@ -34,5 +37,6 @@ describe("backend API helpers", () => {
     });
 
     expect(mapped.candidates[0]).toMatchObject({ faceitMatchId: "m1", processed: true, sharedPlayerCount: 5 });
+    expect(mapped.minimumSharedPlayers).toBe(3);
   });
 });

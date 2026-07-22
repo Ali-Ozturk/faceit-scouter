@@ -17,6 +17,7 @@ export type AnalysisCandidate = {
 
 export type AnalysisResponse = {
   analysisId: string;
+  minimumSharedPlayers?: number;
   opponents: Array<{ faceitPlayerId: string; nickname: string }>;
   candidates: AnalysisCandidate[];
   warnings?: string[];
@@ -41,12 +42,14 @@ export type BackendAnalysisInput = {
   faceitMatchId: string;
   requestingPlayerFaceitId: string;
   selectedMap?: string;
+  minimumSharedPlayers?: number;
 };
 
 export type PopupState = {
   matchId: string;
   selectedMap: string;
   analysis: AnalysisResponse | null;
+  analysisMinimumSharedPlayers: number;
   selectedCandidateIds: string[];
   message: string;
 };

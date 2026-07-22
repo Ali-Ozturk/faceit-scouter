@@ -17,6 +17,7 @@ export type DiscoveryInput = {
   faceitMatchId: string;
   requestingPlayerFaceitId: string;
   selectedMap?: string | null;
+  minimumSharedPlayers?: number;
 };
 
 export type DiscoveryCandidate = {
