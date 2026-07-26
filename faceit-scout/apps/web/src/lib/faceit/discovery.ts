@@ -8,9 +8,16 @@ export type FaceitHistoryEntry = {
   playedAt?: Date | null;
 };
 
+export type FaceitHistoryRequest = {
+  from: Date;
+  to: Date;
+  offset: number;
+  limit: number;
+};
+
 export type FaceitApi = {
   getMatch(matchId: string): Promise<unknown>;
-  getPlayerHistory(playerId: string, limit: number): Promise<FaceitHistoryEntry[]>;
+  getPlayerHistory(playerId: string, request: FaceitHistoryRequest): Promise<FaceitHistoryEntry[]>;
 };
 
 export type DiscoveryInput = {
@@ -89,11 +96,22 @@ export function getOpposingTeam(match: unknown, requestingPlayerFaceitId: string
 export async function discoverFaceitMatches(
   api: FaceitApi,
   input: DiscoveryInput,
-  options: { historyLimit?: number; minimumSharedPlayers?: number; detailConcurrency?: number } = {},
+  options: {
+    historyWindowMonths?: number;
+    historyPageSize?: number;
+    maxHistoryOffset?: number;
+    minimumSharedPlayers?: number;
+    detailConcurrency?: number;
+    now?: Date;
+  } = {},
 ): Promise<DiscoveryResult> {
-  const historyLimit = options.historyLimit ?? 100;
+  const historyWindowMonths = options.historyWindowMonths ?? 3;
+  const historyPageSize = options.historyPageSize ?? 100;
+  const maxHistoryOffset = options.maxHistoryOffset ?? 1000;
   const minimumSharedPlayers = options.minimumSharedPlayers ?? 4;
   const detailConcurrency = options.detailConcurrency ?? 5;
+  const historyTo = options.now ?? new Date();
+  const historyFrom = subtractMonths(historyTo, historyWindowMonths);
   const selectedMap = normalizeMapName(input.selectedMap);
   const currentMatch = await api.getMatch(input.faceitMatchId);
   const opponentTeam = getOpposingTeam(currentMatch, input.requestingPlayerFaceitId);
@@ -103,7 +121,16 @@ export async function discoverFaceitMatches(
 
   await Promise.all(opponentTeam.players.map(async (opponent) => {
     try {
-      const history = await api.getPlayerHistory(opponent.faceitPlayerId, historyLimit);
+      const historyResult = await fetchPlayerHistoryWindow(api, opponent.faceitPlayerId, {
+        from: historyFrom,
+        to: historyTo,
+        pageSize: historyPageSize,
+        maxOffset: maxHistoryOffset,
+      });
+      if (historyResult.reachedOffsetLimit) {
+        warnings.push(`FACEIT history for ${opponent.nickname} reached the API offset limit before the 3-month window was exhausted.`);
+      }
+      const history = historyResult.items;
       for (const entry of history) {
         if (!entry.matchId || entry.matchId === input.faceitMatchId) continue;
         const indexed = matchIndex.get(entry.matchId) ?? { playerIds: new Set<string>(), playedAt: null };
@@ -149,6 +176,31 @@ export async function discoverFaceitMatches(
       .sort((left, right) => compareCandidates(left, right, selectedMap)),
     warnings,
   };
+}
+
+async function fetchPlayerHistoryWindow(
+  api: FaceitApi,
+  playerId: string,
+  options: { from: Date; to: Date; pageSize: number; maxOffset: number },
+) {
+  const pageSize = clampInteger(options.pageSize, 1, 100);
+  const maxOffset = Math.max(0, options.maxOffset);
+  const history: FaceitHistoryEntry[] = [];
+  let reachedOffsetLimit = false;
+
+  for (let offset = 0; offset <= maxOffset; offset += pageSize) {
+    const page = await api.getPlayerHistory(playerId, {
+      from: options.from,
+      to: options.to,
+      offset,
+      limit: pageSize,
+    });
+    history.push(...page);
+    if (page.length < pageSize) break;
+    reachedOffsetLimit = offset + pageSize > maxOffset;
+  }
+
+  return { items: history, reachedOffsetLimit };
 }
 
 function compareCandidates(left: DiscoveryCandidate, right: DiscoveryCandidate, selectedMap: string | null) {
@@ -223,6 +275,17 @@ function latestDate(left: Date | null, right: Date | null) {
   if (!left) return right;
   if (!right) return left;
   return left.getTime() >= right.getTime() ? left : right;
+}
+
+function subtractMonths(value: Date, months: number) {
+  const copy = new Date(value.getTime());
+  copy.setUTCMonth(copy.getUTCMonth() - months);
+  return copy;
+}
+
+function clampInteger(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return max;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
 }
 
 function dateValue(value: unknown): Date | null {

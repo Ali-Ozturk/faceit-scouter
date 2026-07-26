@@ -30,4 +30,26 @@ describe("FaceitHttpClient", () => {
       }),
     );
   });
+
+  it("fetches player history with a bounded time window and pagination", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [{ match_id: "match", started_at: 1_720_000_000 }] }),
+    } as Response);
+    const client = new FaceitHttpClient("token");
+
+    await expect(client.getPlayerHistory("player", {
+      from: new Date("2026-04-22T00:00:00Z"),
+      to: new Date("2026-07-22T00:00:00Z"),
+      offset: 100,
+      limit: 100,
+    })).resolves.toEqual([{ matchId: "match", playedAt: new Date("2024-07-03T09:46:40.000Z") }]);
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://open.faceit.com/data/v4/players/player/history?game=cs2&from=1776816000&to=1784678400&offset=100&limit=100",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer token" }),
+      }),
+    );
+  });
 });

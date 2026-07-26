@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { discoverFaceitMatches, getOpposingTeam, type FaceitApi, type FaceitHistoryEntry } from "./discovery";
+import { discoverFaceitMatches, getOpposingTeam, type FaceitApi, type FaceitHistoryEntry, type FaceitHistoryRequest } from "./discovery";
 
 const allies = players(["a1", "a2", "a3", "a4", "a5"]);
 const opponents = players(["o1", "o2", "o3", "o4", "o5"]);
@@ -22,6 +22,24 @@ describe("FACEIT discovery", () => {
 
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0]).toMatchObject({ faceitMatchId: "shared4", sharedPlayerCount: 4, map: "de_inferno" });
+  });
+
+  it("pages player history beyond the first 100 matches inside the history window", async () => {
+    const result = await discoverFaceitMatches(api({
+      matches: {
+        current: match("current", allies, opponents),
+        shared4: match("shared4", players(["x1", "x2", "x3", "x4", "x5"]), players(["o1", "o2", "o3", "o4", "z1"]), "de_inferno"),
+      },
+      histories: {
+        o1: pagedHistory("o1", "shared4"),
+        o2: pagedHistory("o2", "shared4"),
+        o3: pagedHistory("o3", "shared4"),
+        o4: pagedHistory("o4", "shared4"),
+      },
+    }), { faceitMatchId: "current", requestingPlayerFaceitId: "a1" }, { now: new Date("2026-07-22T00:00:00Z") });
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({ faceitMatchId: "shared4", sharedPlayerCount: 4 });
   });
 
   it("only includes three-player premades when requested", async () => {
@@ -155,9 +173,10 @@ function api(config: {
       if (!found) throw new Error(`Missing match ${matchId}`);
       return found;
     },
-    async getPlayerHistory(playerId) {
+    async getPlayerHistory(playerId, request: FaceitHistoryRequest) {
       if (config.failingHistoryPlayers?.has(playerId)) throw new Error("rate limited");
-      return config.histories[playerId] ?? [];
+      const history = config.histories[playerId] ?? [];
+      return history.slice(request.offset, request.offset + request.limit);
     },
   };
 }
@@ -167,6 +186,16 @@ function historyForOpponents(entries: Record<string, string[]>) {
     playerId,
     matchIds.map((matchId, index) => ({ matchId, playedAt: new Date((index + 1) * 1000) })),
   ]));
+}
+
+function pagedHistory(playerId: string, sharedMatchId: string) {
+  return [
+    ...Array.from({ length: 100 }, (_, index) => ({
+      matchId: `${playerId}-recent-${index}`,
+      playedAt: new Date((index + 1) * 1000),
+    })),
+    { matchId: sharedMatchId, playedAt: new Date(200_000) },
+  ];
 }
 
 function match(matchId: string, faction1: ReturnType<typeof players>, faction2: ReturnType<typeof players>, mapName = "de_mirage", startedAt = 1000) {

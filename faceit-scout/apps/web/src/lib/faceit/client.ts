@@ -1,4 +1,4 @@
-import type { FaceitApi, FaceitHistoryEntry } from "./discovery";
+import type { FaceitApi, FaceitHistoryEntry, FaceitHistoryRequest } from "./discovery";
 
 const FACEIT_BASE_URL = "https://open.faceit.com/data/v4";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -32,8 +32,15 @@ export class FaceitHttpClient implements FaceitApi {
     return playerId;
   }
 
-  async getPlayerHistory(playerId: string, limit: number): Promise<FaceitHistoryEntry[]> {
-    const response = await this.request(`/players/${encodeURIComponent(playerId)}/history?game=cs2&limit=${limit}`);
+  async getPlayerHistory(playerId: string, request: FaceitHistoryRequest): Promise<FaceitHistoryEntry[]> {
+    const params = new URLSearchParams({
+      game: "cs2",
+      from: unixSeconds(request.from).toString(),
+      to: unixSeconds(request.to).toString(),
+      offset: request.offset.toString(),
+      limit: request.limit.toString(),
+    });
+    const response = await this.request(`/players/${encodeURIComponent(playerId)}/history?${params}`);
     const items = Array.isArray(response.items) ? response.items : [];
     return items.map((item) => {
       const record = item && typeof item === "object" ? item as Record<string, unknown> : {};
@@ -59,6 +66,10 @@ export class FaceitHttpClient implements FaceitApi {
 
     return response.json() as Promise<Record<string, unknown>>;
   }
+}
+
+function unixSeconds(value: Date) {
+  return Math.floor(value.getTime() / 1000);
 }
 
 export function createFaceitClientFromEnv() {
