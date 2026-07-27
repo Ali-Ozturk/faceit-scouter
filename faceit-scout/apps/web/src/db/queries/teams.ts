@@ -194,7 +194,7 @@ export async function getTeamMap(id: string, mapName: string) {
   const team = await getTeam(id);
   if (!team) return null;
   const memberIds = team.members.map((member) => member.id);
-  if (memberIds.length === 0) return { ...team, mapName, matches: [], samples: [], utilities: [] };
+  if (memberIds.length === 0) return { ...team, mapName, matches: [], samples: [], utilities: [], rounds: [] };
 
   const memberList = sql.join(memberIds.map((memberId) => sql`${memberId}`), sql`, `);
   const matches = await db.execute<{
@@ -292,8 +292,18 @@ export async function getTeamMap(id: string, mapName: string) {
         .leftJoin(player, eq(grenadeEvent.throwerPlayerId, player.id))
         .where(inArray(grenadeEvent.matchId, matchIds))
     : [];
+  const rounds = matchIds.length
+    ? await db
+        .select({
+          matchId: round.matchId,
+          roundNumber: round.roundNumber,
+          winnerMatchTeamId: round.winnerMatchTeamId,
+        })
+        .from(round)
+        .where(inArray(round.matchId, matchIds))
+    : [];
 
-  return { ...team, mapName, matches, samples, utilities };
+  return { ...team, mapName, matches, samples, utilities, rounds };
 }
 
 async function exactLineupIdsForShortGroup(id: string) {

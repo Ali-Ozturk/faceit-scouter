@@ -7,6 +7,7 @@ import { formatDate } from "@/lib/format";
 import { GoToTopButton } from "@/components/go-to-top-button";
 import { OpeningMatrixNav } from "@/components/opening-matrix-nav";
 import { RoundPathPreview } from "@/components/round-path-preview";
+import { TeamSecondRoundDefaultTabs } from "@/components/team-second-round-default-tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { PositionSample, PreviewFilterGroup, UtilitySample } from "@/components/round-path-preview";
@@ -27,6 +28,10 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
   const sampledRounds = uniqueRoundCount(data.samples);
   const latestPlayedAt = data.matches[0]?.playedAt ?? null;
   const demoFilterGroups = demoGroupsForMatches(data.matches);
+  const secondRoundDefaultTabs = [
+    secondRoundDefaultTab(data.samples, data.utilities, data.matches, data.rounds, true),
+    secondRoundDefaultTab(data.samples, data.utilities, data.matches, data.rounds, false),
+  ];
   const openingNavItems = data.members.map((member) => {
     const playerSamples = data.samples.filter((sample) => sample.playerId === member.id && sample.seconds <= openingWindowSeconds);
     const playerUtilities = data.utilities.filter((utility) => utility.throwerPlayerId === member.id);
@@ -144,6 +149,20 @@ export default async function TeamMapPage({ params }: { params: Promise<{ teamId
                 maxLegendItems={8}
               />
             </div>
+          </section>
+
+          <section id="team-second-round-defaults" className="space-y-4 scroll-mt-24">
+            <SectionTitle
+              icon={<Layers3 className="h-5 w-5" />}
+              title="Team second round defaults"
+              detail="Second round after this team won or lost the first round on that side"
+              tone="violet"
+            />
+            <TeamSecondRoundDefaultTabs
+              mapName={data.mapName}
+              tabs={secondRoundDefaultTabs}
+              filterGroups={demoFilterGroups}
+            />
           </section>
 
           {openingTendencyPreviewsEnabled ? (
@@ -330,6 +349,93 @@ function firstSideRoundSamples(samples: PositionSample[], side: string): Positio
     sample.matchId !== undefined &&
     sample.roundNumber === firstRoundByMatch.get(sample.matchId)
   ));
+}
+
+type RoundOutcome = {
+  matchId: string;
+  roundNumber: number;
+  winnerMatchTeamId: string | null;
+};
+
+function secondRoundDefaultTab(
+  samples: PositionSample[],
+  utilities: (UtilitySample & { matchId: string; roundNumber: number | null })[],
+  matches: { matchId: string; matchTeamId: string }[],
+  rounds: RoundOutcome[],
+  firstRoundWon: boolean,
+) {
+  const label = firstRoundWon ? "After round 1 win" : "After round 1 loss";
+  const tSamples = mergedSamplesForSecondSideRound(samples, matches, rounds, "T", firstRoundWon);
+  const ctSamples = mergedSamplesForSecondSideRound(samples, matches, rounds, "CT", firstRoundWon);
+  return {
+    id: firstRoundWon ? "after-win" : "after-loss",
+    label,
+    detail: `${uniqueRoundCount([...tSamples, ...ctSamples])} rounds`,
+    tSamples,
+    ctSamples,
+    tUtilities: utilitiesForSamples(utilities, tSamples).map((utility) => ({
+      ...utility,
+      filterGroup: demoGroupId(utility.matchId),
+    })),
+    ctUtilities: utilitiesForSamples(utilities, ctSamples).map((utility) => ({
+      ...utility,
+      filterGroup: demoGroupId(utility.matchId),
+    })),
+  };
+}
+
+function mergedSamplesForSecondSideRound(
+  samples: PositionSample[],
+  matches: { matchId: string; matchTeamId: string }[],
+  rounds: RoundOutcome[],
+  side: string,
+  firstRoundWon: boolean,
+): PositionSample[] {
+  const targetRounds = secondSideRoundNumbers(samples, matches, rounds, side, firstRoundWon);
+  return samples
+    .filter((sample) => (
+      sample.side === side &&
+      sample.matchId !== undefined &&
+      sample.roundNumber === targetRounds.get(sample.matchId)
+    ))
+    .map((sample) => {
+      const matchIndex = matches.findIndex((match) => match.matchTeamId === sample.matchTeamId) + 1;
+      return {
+        ...sample,
+        trackId: `${sample.matchTeamId}-${sample.roundNumber}-${sample.playerName}`,
+        colorKey: sample.playerId ?? sample.playerName,
+        filterGroup: demoGroupId(sample.matchId),
+        markerLabel: String(matchIndex),
+        playerName: sample.playerName,
+      };
+    });
+}
+
+function secondSideRoundNumbers(
+  samples: PositionSample[],
+  matches: { matchId: string; matchTeamId: string }[],
+  rounds: RoundOutcome[],
+  side: string,
+  firstRoundWon: boolean,
+) {
+  const firstRoundByMatch = new Map<string, number>();
+  for (const sample of samples) {
+    if (sample.side !== side || !sample.matchId || sample.roundNumber === undefined) continue;
+    const current = firstRoundByMatch.get(sample.matchId);
+    if (current === undefined || sample.roundNumber < current) firstRoundByMatch.set(sample.matchId, sample.roundNumber);
+  }
+
+  const roundsByMatchAndNumber = new Map(rounds.map((roundOutcome) => [`${roundOutcome.matchId}:${roundOutcome.roundNumber}`, roundOutcome]));
+  const matchTeamByMatch = new Map(matches.map((match) => [match.matchId, match.matchTeamId]));
+  const targetRounds = new Map<string, number>();
+  for (const [matchId, firstRoundNumber] of firstRoundByMatch.entries()) {
+    const firstRound = roundsByMatchAndNumber.get(`${matchId}:${firstRoundNumber}`);
+    const matchTeamId = matchTeamByMatch.get(matchId);
+    if (!firstRound || !matchTeamId) continue;
+    const teamWonFirstRound = firstRound.winnerMatchTeamId === matchTeamId;
+    if (teamWonFirstRound === firstRoundWon) targetRounds.set(matchId, firstRoundNumber + 1);
+  }
+  return targetRounds;
 }
 
 function openingSamplesForPlayer(samples: PositionSample[], side: string, playerId: string): PositionSample[] {

@@ -381,7 +381,7 @@ class DemoParser:
         tick_rate: int = 64,
     ) -> list[ParsedPositionSample]:
         steam_ids = {player.steam_id for player in players}
-        selected_rounds = rounds if opening_rounds_enabled() else self._first_rounds_by_side(rounds)
+        selected_rounds = rounds if opening_rounds_enabled() else self._default_preview_rounds_by_side(rounds)
         tick_to_round: dict[int, ParsedRound] = {}
         for round_result in selected_rounds:
             if round_result.started_at_demo_time is None or round_result.ended_at_demo_time is None:
@@ -438,6 +438,16 @@ class DemoParser:
         first_t = next((round_result for round_result in rounds if round_result.round_number <= 12), None)
         first_ct = next((round_result for round_result in rounds if round_result.round_number > 12), None)
         return [round_result for round_result in (first_t, first_ct) if round_result]
+
+    def _default_preview_rounds_by_side(self, rounds: list[ParsedRound]) -> list[ParsedRound]:
+        selected: list[ParsedRound] = []
+        by_round_number = {round_result.round_number: round_result for round_result in rounds}
+        for first_round in self._first_rounds_by_side(rounds):
+            selected.append(first_round)
+            second_round = by_round_number.get(first_round.round_number + 1)
+            if second_round:
+                selected.append(second_round)
+        return selected
 
     def _parse_grenades(
         self,
