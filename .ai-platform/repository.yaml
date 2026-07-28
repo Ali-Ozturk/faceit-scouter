@@ -1,0 +1,36 @@
+﻿name: faceit-stack-analysis
+
+allowedCommands:
+  - id: web-test
+    command: npm install && npm test
+    workingDirectory: faceit-scout/apps/web
+    timeoutSeconds: 900
+
+  - id: web-build
+    command: npm install && npm run build
+    workingDirectory: faceit-scout/apps/web
+    timeoutSeconds: 1200
+
+  - id: processor-test
+    command: pip install -e .[dev] && python -m pytest
+    workingDirectory: faceit-scout/apps/processor
+    timeoutSeconds: 1200
+
+protectedPaths:
+  - .git
+  - .env
+  - faceit-scout/.env
+  - faceit-scout/.env.local
+  - faceit-scout/.env.production
+  - faceit-scout/data
+  - faceit-scout/apps/web/node_modules
+  - faceit-scout/apps/web/.next
+  - faceit-scout/apps/extension/node_modules
+  - faceit-scout/apps/extension/dist
+  - faceit-scout/apps/processor/.venv
+  - faceit-scout/apps/processor/pytest-cache-files-1grbep9l
+  - faceit-scout/apps/processor/pytest-cache-files-m6bgdtwo
+  - faceit-scout/apps/processor/.pytest_cache
+
+maxChangedFiles: 50
+networkAccess: false
