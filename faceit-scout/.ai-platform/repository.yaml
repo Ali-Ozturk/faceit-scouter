@@ -1,0 +1,37 @@
+﻿name: faceit-scout
+
+allowedCommands:
+  - id: web-test
+    command: npm test
+    workingDirectory: apps/web
+    timeoutSeconds: 600
+
+  - id: web-build
+    command: npm run build
+    workingDirectory: apps/web
+    timeoutSeconds: 900
+
+  - id: processor-test
+    command: python -m pytest
+    workingDirectory: apps/processor
+    timeoutSeconds: 900
+
+protectedPaths:
+  - .git
+  - .env
+  - .env.local
+  - .env.production
+  - data
+  - node_modules
+  - apps/web/node_modules
+  - apps/web/.next
+  - apps/extension/node_modules
+  - apps/extension/dist
+  - apps/processor/.venv
+  - apps/processor/pytest-cache-files-1grbep9l
+  - apps/processor/pytest-cache-files-m6bgdtwo
+  - apps/processor/**/__pycache__
+  - apps/processor/.pytest_cache
+
+maxChangedFiles: 40
+networkAccess: false
