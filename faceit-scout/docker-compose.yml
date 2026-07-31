@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-faceit_scout}
       POSTGRES_DB: ${POSTGRES_DB:-faceit_scout}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5434}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +23,7 @@ services:
       FACEIT_API_TOKEN: ${FACEIT_API_TOKEN:-}
       OPENING_TENDENCY_PREVIEWS_ENABLED: ${OPENING_TENDENCY_PREVIEWS_ENABLED:-false}
     ports:
-      - "3000:3000"
+      - "${WEB_HOST_PORT:-3101}:3000"
     depends_on:
       postgres:
         condition: service_healthy

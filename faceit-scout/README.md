@@ -2,70 +2,255 @@
 
 Local FACEIT CS2 demo ingestion and scouting dashboard.
 
-This repository contains:
+FACEIT Scout runs three services:
 
-- `apps/web`: Next.js App Router frontend and read-only API routes.
-- `apps/processor`: Python worker that watches demo folders, decompresses `.dem.zst`, parses demos through a demoparser2 adapter, and persists results.
-- `apps/extension`: Manifest V3 Chrome extension for discovering and downloading FACEIT demos through the logged-in browser session.
-- `data`: local lifecycle folders for incoming, processing, completed, failed, decompressed, and temporary files.
+- `postgres`: local PostgreSQL database.
+- `web`: Next.js dashboard and API.
+- `processor`: Python worker that watches demo folders, decompresses `.dem.zst`, parses demos, and saves results.
 
-## Current MVP Status
+Browser extensions are available for demo discovery/download:
 
-Implemented:
+- `apps/extension`: Chrome / Chromium extension.
+- `apps/extension-firefox`: Firefox extension.
 
-- PostgreSQL schema owned by Drizzle.
-- Docker Compose services for Postgres, Next.js, and the Python processor.
-- File filtering, startup scan, watchfiles watcher, stability checks, atomic claiming, checksum creation, duplicate detection, decompression, success/failure movement.
-- SQLAlchemy persistence models mirroring the Drizzle schema.
-- Parser adapter boundary around `demoparser2`.
-- Configurable parallel processor workers with `PROCESSOR_CONCURRENCY`.
-- Exact lineup fingerprinting and lineup match grouping.
-- Dashboard, imports, lineups, team-map, match-detail pages, and JSON API routes.
-- Unit tests for ingestion helpers and decompression.
+## Requirements
 
-Known parser limitation:
+For the normal Docker setup you only need:
 
-- The adapter currently extracts header metadata and players. Round, kill, bomb, and grenade extraction models and persistence are in place, but event extraction needs validation against a real CS2 demo and the installed demoparser2 API before treating those fields as complete.
+- Git
+- Docker Desktop, with Docker Compose v2
+- A FACEIT Data API token for match discovery and extension analysis
 
-## Environment
+Optional, only if you build extensions locally:
 
-Copy `.env.example` to `.env` for local development if you want to override defaults.
+- Node.js 20+
+- npm
+- Chrome, Edge, or Firefox 121+
 
-```powershell
-Copy-Item .env.example .env
-```
+Optional, only if you run apps outside Docker:
 
-Set `FACEIT_API_TOKEN` in `.env` to enable server-side FACEIT Data API match discovery.
+- Python 3.12+
 
-## Mode A: Everything In Docker
+## Quick Start
 
-From `faceit-scout`:
+From a fresh clone:
 
 ```powershell
-docker compose up --build
+cd faceit-scout
+.\scripts\setup.ps1
+notepad .env
+docker compose up -d --build
 ```
 
-The web container runs `drizzle-kit push` before starting Next.js. Place demos in:
+On macOS/Linux:
 
-```text
-data/incoming
+```sh
+cd faceit-scout
+sh scripts/setup.sh
+nano .env
+docker compose up -d --build
+```
+
+In `.env`, set:
+
+```env
+FACEIT_API_TOKEN=your_faceit_data_api_token
 ```
 
 Then open:
 
 ```text
-http://localhost:3000
+http://localhost:3101
 ```
 
-## Mode B: Postgres In Docker, Apps On Host
+The web container runs database migrations automatically before starting Next.js.
+
+## Daily Commands
+
+```powershell
+docker compose up -d --build
+docker compose logs -f
+docker compose down
+```
+
+If you have `make` installed:
+
+```sh
+make setup
+make up
+make logs
+make down
+```
+
+`make up` also runs setup and builds the Docker images.
+
+## Ports
+
+Defaults are chosen to avoid common local conflicts:
+
+```env
+WEB_HOST_PORT=3101
+POSTGRES_HOST_PORT=5434
+```
+
+This means:
+
+- Browser URL: `http://localhost:3101`
+- Web container internal port: `3000`
+- Host PostgreSQL port: `5434`
+- PostgreSQL container internal port: `5432`
+
+If you want the old web URL back and port `3000` is free, set this in `.env`:
+
+```env
+WEB_HOST_PORT=3000
+```
+
+Then recreate the stack:
+
+```powershell
+docker compose up -d --build --force-recreate
+```
+
+## Environment Variables
+
+`scripts/setup.ps1` / `scripts/setup.sh` creates `.env` from `.env.example`.
+
+Important values:
+
+```env
+FACEIT_API_TOKEN=
+WEB_HOST_PORT=3101
+POSTGRES_HOST_PORT=5434
+PROCESSOR_CONCURRENCY=3
+OPENING_TENDENCY_PREVIEWS_ENABLED=false
+```
+
+Use `FACEIT_API_TOKEN` for FACEIT match discovery. Without it, the dashboard can run, but analysis calls that need FACEIT data will fail.
+
+Most people should leave these folders as-is:
+
+```env
+INCOMING_DIRECTORY=./data/incoming
+PROCESSING_DIRECTORY=./data/processing
+COMPLETED_DIRECTORY=./data/completed
+FAILED_DIRECTORY=./data/failed
+DECOMPRESSED_DIRECTORY=./data/decompressed
+TEMPORARY_DIRECTORY=./data/temporary
+```
+
+Docker maps `./data` into the processor as `/data`, so the compose file already uses the correct in-container paths.
+
+## Demo Files
+
+Put new demos here:
+
+```text
+data/incoming
+```
+
+Supported inputs:
+
+```text
+.dem
+.dem.zst
+```
+
+Lifecycle folders:
+
+```text
+data/incoming      new files only
+data/processing    claimed files being processed
+data/completed     successfully handled originals, including duplicates
+data/failed        permanently failed originals
+data/decompressed  temporary .dem output from .dem.zst
+data/temporary     scratch space
+```
+
+The processor ignores hidden files, `.crdownload`, `.tmp`, `.part`, and unsupported extensions.
+
+## Browser Extension
+
+The extension uses:
+
+- Local backend: `http://localhost:3101`
+- Your logged-in FACEIT browser session for demo downloads
+- The backend `FACEIT_API_TOKEN` from `.env` for match discovery
+
+It does not store or send FACEIT cookies/session tokens to the backend.
+
+### Chrome / Edge
+
+```powershell
+cd apps/extension
+npm install
+npm run build
+```
+
+Open `chrome://extensions`, enable Developer mode, click **Load unpacked**, and select:
+
+```text
+apps/extension/dist
+```
+
+Popup settings:
+
+```text
+Backend URL: http://localhost:3101
+FACEIT player ID or nickname: your FACEIT player ID or nickname
+Download subdirectory: FaceitScout/incoming
+```
+
+### Firefox
+
+Firefox 121 or newer is required.
+
+```powershell
+cd apps/extension-firefox
+npm install
+npm run build
+```
+
+Open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on...**, and select:
+
+```text
+apps/extension-firefox/dist/manifest.json
+```
+
+Use the same popup settings:
+
+```text
+Backend URL: http://localhost:3101
+FACEIT player ID or nickname: your FACEIT player ID or nickname
+Download subdirectory: FaceitScout/incoming
+```
+
+### Getting Downloads Into `data/incoming`
+
+Chrome and Firefox save extension downloads relative to the browser's configured Downloads folder. With the default extension setting, demos land in:
+
+```text
+<Downloads>/FaceitScout/incoming
+```
+
+Then either:
+
+- Move downloaded `.dem.zst` files into `data/incoming` manually, or
+- On Windows, create a junction so `<Downloads>\FaceitScout\incoming` points to this repo's `data\incoming`.
+
+For the junction setup, see [Windows Download Junction](docs/windows-download-junction.md).
+
+## Local Development Without Full Docker
+
+Most users should use Docker. For app development, you can run Postgres in Docker and apps on the host.
 
 Start Postgres:
 
 ```powershell
-docker compose up postgres
+docker compose up -d postgres
 ```
 
-Install and migrate the web app:
+Run web:
 
 ```powershell
 cd apps/web
@@ -74,7 +259,7 @@ npm run db:migrate
 npm run dev
 ```
 
-Install and run the processor:
+Run processor:
 
 ```powershell
 cd apps/processor
@@ -82,7 +267,11 @@ pip install -e .[dev]
 python -m scout_processor.main
 ```
 
-Set `PROCESSOR_CONCURRENCY=3` or higher to parse several demos in parallel. Higher values are faster for batches, but each parser worker can use substantial CPU and memory.
+For host-run web/processor, use the host database URL from `.env`:
+
+```env
+DATABASE_URL=postgresql://faceit_scout:faceit_scout@localhost:5434/faceit_scout
+```
 
 ## Tests
 
@@ -95,7 +284,12 @@ npm run build
 ```powershell
 cd apps/extension
 npm test
-npm run lint
+npm run build
+```
+
+```powershell
+cd apps/extension-firefox
+npm test
 npm run build
 ```
 
@@ -104,89 +298,36 @@ cd apps/processor
 python -m pytest
 ```
 
-## Makefile Shortcuts
+## Troubleshooting
 
-```text
-make up
-make down
-make logs
-make migrate
-make web
-make processor
-make test
-make lint
-make format
-make reset
-```
-
-On Windows, PowerShell commands above are the most reliable path.
-
-## Demo Lifecycle
-
-```text
-data/incoming      new files only
-data/processing    atomically claimed files
-data/completed     successfully handled originals, including duplicates
-data/failed        permanently failed originals
-data/decompressed  temporary .dem output from .dem.zst
-data/temporary     local scratch space
-```
-
-The processor ignores hidden files, `.crdownload`, `.tmp`, `.part`, and unsupported extensions.
-
-## FACEIT Match Discovery
-
-Open `/analyses` in the web app to enter a current FACEIT lobby or match ID, your FACEIT player ID or nickname, and optionally a selected map. The backend finds historical matchrooms where at least four current opponents played together and stores the analysis for later retrieval.
-
-Demo downloading remains manual: open the returned FACEIT matchroom links, download the demo, and place the `.dem` or `.dem.zst` file in `data/incoming`.
-
-## Chrome Extension
-
-The Chrome extension uses the local backend for opponent analysis and the user's existing logged-in FACEIT browser session for demo downloads. It does not store or send FACEIT cookies, session tokens, or the backend FACEIT API token.
-
-Build and load it locally:
+Check service health:
 
 ```powershell
-cd apps/extension
-npm install
-npm run build
+docker compose ps
+docker compose logs -f web
+docker compose logs -f processor
 ```
 
-Then open `chrome://extensions`, enable Developer mode, choose Load unpacked, and select:
-
-```text
-apps/extension/dist
-```
-
-In the extension popup, configure:
-
-```text
-Backend URL: http://localhost:3000
-FACEIT player ID or nickname: your FACEIT player ID or nickname
-Download subdirectory: FaceitScout/incoming
-```
-
-Chrome downloads are saved relative to the browser's configured download folder. With the default subdirectory on Windows, configure the processor to watch:
-
-```text
-C:\Users\<user>\Downloads\FaceitScout\incoming
-```
-
-For better Docker processor performance on Windows, use a junction so Chrome's download folder points at `data\incoming`. See [Windows Chrome Download Junction](docs/windows-download-junction.md).
-
-Open a current FACEIT CS2 matchroom, open the extension, detect or enter the current match ID, optionally enter the map, and run analysis. The extension skips already processed matches by default, opens official FACEIT matchrooms for demo retrieval, downloads available demos as `{faceit-match-id}.dem.zst`, and leaves the matchroom open with an actionable fallback when automatic retrieval is unavailable.
-
-Create a zip package after building:
+Check the web API:
 
 ```powershell
-cd apps/extension
-npm run package
+Invoke-WebRequest http://localhost:3101/api/health
 ```
 
-Downloaded demos should be named:
+Common issues:
 
-```text
-{faceit-match-id}.dem.zst
+- `localhost:3000` does not open: use `http://localhost:3101`, or set `WEB_HOST_PORT=3000`.
+- Extension says `Failed to fetch`: confirm backend URL is `http://localhost:3101`, rebuild/reload the extension, and check `http://localhost:3101/api/health`.
+- Analysis fails: make sure `FACEIT_API_TOKEN` is set in `.env`, then recreate the web container.
+- No demos are processed: make sure files are in `data/incoming` and check processor logs.
+- Port conflict: change `WEB_HOST_PORT` or `POSTGRES_HOST_PORT` in `.env`, then recreate the stack.
+
+## Reset Local Data
+
+This removes containers and the database volume:
+
+```powershell
+docker compose down -v
 ```
 
-The current manual workflow is intentionally identical after the file lands in `data/incoming`.
+It does not delete demo files in `data`.

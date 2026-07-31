@@ -3,10 +3,11 @@ SERVICES := web processor postgres
 PRIMARY_GOAL := $(firstword $(MAKECMDGOALS))
 ARG := $(word 2,$(MAKECMDGOALS))
 
-.PHONY: help up build rebuild restart down down-v logs migrate dev-web dev-processor test lint format reset
+.PHONY: help setup up build rebuild restart down down-v logs migrate dev-web dev-processor test lint format reset
 
 help:
 	@echo "Docker:"
+	@echo "  make setup              Create .env and local data folders"
 	@echo "  make up                 Start the stack"
 	@echo "  make build web          Build one service"
 	@echo "  make build all          Build all services"
@@ -24,8 +25,13 @@ help:
 	@echo "  make dev-processor      Run the processor locally"
 	@echo "  make test               Run processor and web tests"
 
-up:
-	$(COMPOSE) up -d
+setup:
+	@if [ ! -f .env ]; then cp .env.example .env && echo "Created .env from .env.example"; else echo ".env already exists"; fi
+	@mkdir -p data/incoming data/processing data/completed data/failed data/decompressed data/temporary
+	@echo "Data folders are ready"
+
+up: setup
+	$(COMPOSE) up -d --build
 
 build:
 ifeq ($(ARG),)

@@ -12,7 +12,7 @@ This avoids the slow cross-mount copy from `/downloads/incoming` to `/data/proce
 
 ## 1. Stop the Processor
 
-From the repo root:
+From `faceit-scout`:
 
 ```powershell
 docker compose stop processor
@@ -34,7 +34,7 @@ If files are listed, either let the processor finish them first or move them man
 Run PowerShell as your normal user from anywhere:
 
 ```powershell
-$repoIncoming = "C:\Users\AliOz\Documents\Projects\faceit-stack-analysis\faceit-scout\data\incoming"
+$repoIncoming = (Resolve-Path -LiteralPath ".\data\incoming").Path
 $downloadIncoming = "$env:USERPROFILE\Downloads\FaceitScout\incoming"
 
 New-Item -ItemType Directory -Force -Path (Split-Path $downloadIncoming) | Out-Null

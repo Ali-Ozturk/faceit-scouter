@@ -1,3 +1,4 @@
+import { extensionApi } from "../shared/extension-api.js";
 import type { ExtensionSettings } from "../shared/types.js";
 
 const SETTINGS_KEY = "faceitScoutSettings";
@@ -10,7 +11,7 @@ export const defaultSettings: ExtensionSettings = {
 };
 
 export async function getSettings(): Promise<ExtensionSettings> {
-  const stored = await chrome.storage.local.get(SETTINGS_KEY);
+  const stored = await extensionApi.storage.local.get(SETTINGS_KEY);
   return { ...defaultSettings, ...(stored[SETTINGS_KEY] ?? {}) };
 }
 
@@ -21,7 +22,7 @@ export async function saveSettings(settings: Partial<ExtensionSettings>) {
     ...settings,
     maxConcurrentDownloads: clampConcurrency(settings.maxConcurrentDownloads ?? current.maxConcurrentDownloads),
   };
-  await chrome.storage.local.set({ [SETTINGS_KEY]: next });
+  await extensionApi.storage.local.set({ [SETTINGS_KEY]: next });
   return next;
 }
 

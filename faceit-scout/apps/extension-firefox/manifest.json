@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "FACEIT Scout",
+  "name": "FACEIT Scout Firefox",
   "description": "Find and download relevant FACEIT demos for local scouting.",
   "version": "0.1.0",
   "action": {
@@ -8,6 +8,7 @@
     "default_title": "FACEIT Scout"
   },
   "background": {
+    "scripts": ["background/service-worker.js"],
     "service_worker": "background/service-worker.js",
     "type": "module"
   },
@@ -26,5 +27,11 @@
     "https://*.faceit.com/*",
     "https://*.amazonaws.com/*",
     "https://*.cloudfront.net/*"
-  ]
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "faceit-scout-firefox@local",
+      "strict_min_version": "121.0"
+    }
+  }
 }
