@@ -1,6 +1,6 @@
 import { createAnalysisRequest } from "../api/backend.js";
 import { candidatesForDownload, unprocessedCandidateIds } from "../downloads/selection.js";
-import type { AnalysisResponse, DownloadStatus, ExtensionSettings } from "../shared/types.js";
+import type { AnalysisCandidate, AnalysisResponse, DownloadStatus, ExtensionSettings } from "../shared/types.js";
 import { getPopupState, getStoredDownloadStatuses, savePopupState } from "../storage/popup-state.js";
 
 const backendUrlInput = input("backend-url");
@@ -36,7 +36,7 @@ async function init() {
   downloadSubdirectoryInput.value = settings.preferredDownloadSubdirectory;
   matchIdInput.value = popupState.matchId;
   selectedMapInput.value = popupState.selectedMap;
-  currentAnalysis = popupState.analysis;
+  currentAnalysis = popupState.analysis ? sortAnalysisCandidates(popupState.analysis) : null;
   currentAnalysisMinimumSharedPlayers = popupState.analysisMinimumSharedPlayers;
   selectedIds = new Set(popupState.selectedCandidateIds);
   statuses = await getStoredDownloadStatuses();
@@ -136,9 +136,9 @@ async function startAnalysis(minimumSharedPlayers = 4) {
     return;
   }
 
-  currentAnalysis = response;
+  currentAnalysis = sortAnalysisCandidates(response);
   currentAnalysisMinimumSharedPlayers = response.minimumSharedPlayers ?? minimumSharedPlayers;
-  selectedIds = unprocessedCandidateIds(response.candidates);
+  selectedIds = unprocessedCandidateIds(currentAnalysis.candidates);
   statuses = [];
   showMessage(analysisMessage(response, currentAnalysisMinimumSharedPlayers));
   await persistPopupState();
@@ -218,6 +218,21 @@ function analysisMessage(response: AnalysisResponse, minimumSharedPlayers: numbe
   return minimumSharedPlayers >= 4
     ? "No 4-player historical matches found."
     : "No 3-player historical matches found.";
+}
+
+function sortAnalysisCandidates(response: AnalysisResponse): AnalysisResponse {
+  return {
+    ...response,
+    candidates: [...response.candidates].sort(compareCandidatesByNewest),
+  };
+}
+
+function compareCandidatesByNewest(left: AnalysisCandidate, right: AnalysisCandidate) {
+  return candidateTime(right) - candidateTime(left) || left.faceitMatchId.localeCompare(right.faceitMatchId);
+}
+
+function candidateTime(candidate: AnalysisCandidate) {
+  return candidate.playedAt ? new Date(candidate.playedAt).getTime() || 0 : 0;
 }
 
 function sendMessage<T>(payload: unknown): Promise<T> {

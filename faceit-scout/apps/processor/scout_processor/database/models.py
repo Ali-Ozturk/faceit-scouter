@@ -212,6 +212,24 @@ class RoundPositionSample(Base):
     alive: Mapped[bool | None] = mapped_column(Boolean)
 
 
+class RoundPlayerLoadout(Base):
+    __tablename__ = "round_player_loadout"
+    __table_args__ = (UniqueConstraint("match_id", "player_id", "round_number", name="round_player_loadout_unique"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    match_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cs_match.id", ondelete="CASCADE"))
+    match_team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("match_team.id", ondelete="CASCADE"))
+    player_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("player.id", ondelete="CASCADE"))
+    round_number: Mapped[int] = mapped_column(Integer)
+    side: Mapped[str] = mapped_column(Text)
+    sample_tick: Mapped[int] = mapped_column(Integer)
+    sample_seconds: Mapped[float] = mapped_column(Double)
+    player_name: Mapped[str] = mapped_column(Text)
+    weapon: Mapped[str | None] = mapped_column(Text)
+    utility: Mapped[str | None] = mapped_column(Text)
+    inventory: Mapped[str | None] = mapped_column(Text)
+
+
 class TeamLineup(Base):
     __tablename__ = "team_lineup"
 

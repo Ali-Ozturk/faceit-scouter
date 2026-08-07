@@ -17,6 +17,7 @@ from scout_processor.database.models import (
     MatchTeamLineup,
     Player,
     Round,
+    RoundPlayerLoadout,
     RoundPositionSample,
     TeamLineup,
     TeamLineupMember,
@@ -61,6 +62,7 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
             session.execute(delete(KillEvent).where(KillEvent.match_id == match.id))
             session.execute(delete(BombEvent).where(BombEvent.match_id == match.id))
             session.execute(delete(GrenadeEvent).where(GrenadeEvent.match_id == match.id))
+            session.execute(delete(RoundPlayerLoadout).where(RoundPlayerLoadout.match_id == match.id))
             session.execute(delete(RoundPositionSample).where(RoundPositionSample.match_id == match.id))
             session.execute(delete(Round).where(Round.match_id == match.id))
             session.execute(delete(MatchPlayer).where(MatchPlayer.match_id == match.id))
@@ -299,6 +301,32 @@ def persist_parsed_demo(session: Session, imported_demo: ImportedDemo, parsed: P
     if sample_rows:
         session.bulk_insert_mappings(RoundPositionSample, sample_rows)
     log_persist_stage(session, imported_demo, "position_samples", stage_started_at, parsed, samples=len(sample_rows))
+
+    stage_started_at = perf_counter()
+    loadout_rows = []
+    for loadout in parsed.player_loadouts:
+        player = players_by_steam_id.get(loadout.steam_id)
+        match_team_id = player_team_by_steam_id.get(loadout.steam_id)
+        if not player or not match_team_id:
+            continue
+        loadout_rows.append(
+            {
+                "match_id": match.id,
+                "match_team_id": match_team_id,
+                "player_id": player.id,
+                "round_number": loadout.round_number,
+                "side": loadout.side,
+                "sample_tick": loadout.tick,
+                "sample_seconds": loadout.seconds,
+                "player_name": loadout.player_name,
+                "weapon": loadout.weapon,
+                "utility": loadout.utility,
+                "inventory": loadout.inventory,
+            }
+        )
+    if loadout_rows:
+        session.bulk_insert_mappings(RoundPlayerLoadout, loadout_rows)
+    log_persist_stage(session, imported_demo, "player_loadouts", stage_started_at, parsed, loadouts=len(loadout_rows))
 
     imported_demo.parsed_match_id = match.id
     log_persist_stage(session, imported_demo, "total", started_at, parsed)

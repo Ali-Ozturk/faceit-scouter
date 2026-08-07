@@ -1,6 +1,6 @@
 from scout_processor.parsing.demo_parser import dataframe_to_rows, extract_played_at_from_header, sanitize_json_value
 from scout_processor.parsing.demo_parser import DemoParser
-from scout_processor.parsing.parser_models import ParsedRound
+from scout_processor.parsing.parser_models import ParsedPlayer, ParsedRound
 
 
 class PolarsLikeFrame:
@@ -97,6 +97,92 @@ def test_parse_grenades_extracts_utility_positions():
     assert events[1].end_x == 40
 
 
+def test_parse_player_loadouts_extracts_weapon_and_utility():
+    rounds = [
+        ParsedRound(
+            round_number=1,
+            started_at_demo_time=100,
+            ended_at_demo_time=104,
+        )
+    ]
+    players = [ParsedPlayer(steam_id="765", nickname="A", team_number=2)]
+
+    loadouts = DemoParser()._parse_player_loadouts(LoadoutTickParser(), players, rounds, tick_rate=4)
+
+    assert len(loadouts) == 1
+    assert loadouts[0].tick == 104
+    assert loadouts[0].seconds == 1
+    assert loadouts[0].weapon == "ak47"
+    assert loadouts[0].utility == "flashbang, smokegrenade"
+    assert loadouts[0].inventory == "ak47, smokegrenade, flashbang"
+
+
+def test_parse_player_loadouts_ignores_numeric_weapon_handles():
+    rounds = [
+        ParsedRound(
+            round_number=1,
+            started_at_demo_time=100,
+            ended_at_demo_time=104,
+        )
+    ]
+    players = [ParsedPlayer(steam_id="765", nickname="A", team_number=2)]
+
+    loadouts = DemoParser()._parse_player_loadouts(NumericWeaponTickParser(), players, rounds, tick_rate=4)
+
+    assert len(loadouts) == 1
+    assert loadouts[0].weapon is None
+
+
+def test_parse_player_loadouts_prefers_inventory_weapon_over_active_knife():
+    rounds = [
+        ParsedRound(
+            round_number=1,
+            started_at_demo_time=100,
+            ended_at_demo_time=200,
+        )
+    ]
+    players = [ParsedPlayer(steam_id="765", nickname="A", team_number=2)]
+
+    loadouts = DemoParser()._parse_player_loadouts(KnifeWithRifleInventoryTickParser(), players, rounds, tick_rate=4)
+
+    assert len(loadouts) == 1
+    assert loadouts[0].weapon == "ak47"
+    assert loadouts[0].inventory == "ak47, glock, knife, flashbang"
+
+
+def test_parse_player_loadouts_uses_later_non_knife_active_weapon_without_inventory():
+    rounds = [
+        ParsedRound(
+            round_number=1,
+            started_at_demo_time=100,
+            ended_at_demo_time=200,
+        )
+    ]
+    players = [ParsedPlayer(steam_id="765", nickname="A", team_number=2)]
+
+    loadouts = DemoParser()._parse_player_loadouts(ActiveWeaponSwitchTickParser(), players, rounds, tick_rate=4)
+
+    assert len(loadouts) == 1
+    assert loadouts[0].weapon == "ak47"
+
+
+def test_parse_player_loadouts_ignores_knife_skins_and_utility_items():
+    rounds = [
+        ParsedRound(
+            round_number=1,
+            started_at_demo_time=100,
+            ended_at_demo_time=200,
+        )
+    ]
+    players = [ParsedPlayer(steam_id="765", nickname="A", team_number=2)]
+
+    loadouts = DemoParser()._parse_player_loadouts(KnifeSkinAndUtilityTickParser(), players, rounds, tick_rate=4)
+
+    assert len(loadouts) == 1
+    assert loadouts[0].weapon is None
+    assert loadouts[0].inventory == "m9_bayonet, gut, flip, smokegrenade"
+
+
 class PandasLikePlayerInfoFrame:
     def to_dict(self, orient=None):
         assert orient == "records"
@@ -134,6 +220,86 @@ class GrenadeParser:
                 {"tick": 250, "thrower_steamid": "766", "thrower_x": 1, "thrower_y": 2, "x": 40, "y": 50},
             ],
         }.get(event_name, []))
+
+
+class LoadoutTickParser:
+    def parse_ticks(self, fields, ticks):
+        assert "active_weapon_name" in fields
+        assert "inventory" in fields
+        return PandasLikeEventFrame([
+            {
+                "tick": tick,
+                "steamid": 765.0,
+                "name": "A",
+                "team_name": "TERRORIST",
+                "X": 1,
+                "Y": 2,
+                "Z": 3,
+                "is_alive": True,
+                "active_weapon_name": "weapon_ak47",
+                "inventory": ["weapon_flashbang", "weapon_smokegrenade", "weapon_ak47"],
+            }
+            for tick in ticks
+        ])
+
+
+class NumericWeaponTickParser:
+    def parse_ticks(self, fields, ticks):
+        return PandasLikeEventFrame([
+            {
+                "tick": tick,
+                "steamid": 765.0,
+                "name": "A",
+                "team_name": "TERRORIST",
+                "active_weapon": 9568734,
+            }
+            for tick in ticks
+        ])
+
+
+class KnifeWithRifleInventoryTickParser:
+    def parse_ticks(self, fields, ticks):
+        return PandasLikeEventFrame([
+            {
+                "tick": tick,
+                "steamid": 765.0,
+                "name": "A",
+                "team_name": "TERRORIST",
+                "active_weapon_name": "weapon_knife",
+                "inventory": ["weapon_knife", "weapon_glock", "weapon_ak47", "weapon_flashbang"],
+            }
+            for tick in ticks
+        ])
+
+
+class ActiveWeaponSwitchTickParser:
+    def parse_ticks(self, fields, ticks):
+        first_tick = min(ticks)
+        return PandasLikeEventFrame([
+            {
+                "tick": tick,
+                "steamid": 765.0,
+                "name": "A",
+                "team_name": "TERRORIST",
+                "active_weapon_name": "weapon_knife" if tick == first_tick else "weapon_ak47",
+            }
+            for tick in ticks
+        ])
+
+
+class KnifeSkinAndUtilityTickParser:
+    def parse_ticks(self, fields, ticks):
+        values = ["Gut", "Flip", "M9 Bayonet", "Smoke Grenade"]
+        return PandasLikeEventFrame([
+            {
+                "tick": tick,
+                "steamid": 765.0,
+                "name": "A",
+                "team_name": "TERRORIST",
+                "active_weapon_name": values[index % len(values)],
+            }
+            for index, tick in enumerate(ticks)
+        ])
 
 
 class PandasLikeEventFrame:

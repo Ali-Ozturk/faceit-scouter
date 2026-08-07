@@ -9,10 +9,43 @@ from scout_processor.analysis.match_summary import internal_match_fingerprint
 from scout_processor.errors.exceptions import ErrorCode, ProcessingError
 from scout_processor.ingestion.checksum import sha256_file
 from scout_processor.parsing.event_extractors import first_present
-from scout_processor.parsing.parser_models import ParsedDemo, ParsedGrenadeEvent, ParsedKillEvent, ParsedPlayer, ParsedPositionSample, ParsedRound, ParsedTeam
+from scout_processor.parsing.parser_models import ParsedDemo, ParsedGrenadeEvent, ParsedKillEvent, ParsedPlayer, ParsedPositionSample, ParsedRound, ParsedRoundPlayerLoadout, ParsedTeam
 
 FACEIT_MATCH_ID_RE = re.compile(r"(?:\d-)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 OPENING_SAMPLE_WINDOW_SECONDS = 90
+LOADOUT_SAMPLE_SECONDS = (5, 7, 10, 15)
+POSITION_TICK_FIELDS = ["steamid", "name", "team_name", "X", "Y", "Z", "is_alive"]
+LOADOUT_TICK_FIELDS = [
+    "steamid",
+    "name",
+    "team_name",
+    "active_weapon_name",
+    "active_weapon",
+    "weapon_name",
+    "weapon",
+    "inventory",
+    "inventory_names",
+    "weapons",
+    "grenades",
+    "has_flashbang",
+    "has_smokegrenade",
+    "has_hegrenade",
+    "has_molotov",
+    "has_incgrenade",
+    "has_decoy",
+]
+LOADOUT_TICK_FIELD_SETS = [
+    LOADOUT_TICK_FIELDS,
+    ["steamid", "name", "team_name", "active_weapon_name", "inventory"],
+    ["steamid", "name", "team_name", "active_weapon_name"],
+    ["steamid", "name", "team_name", "active_weapon"],
+    ["steamid", "name", "team_name", "weapon_name"],
+    ["steamid", "name", "team_name", "weapon"],
+    ["steamid", "name", "team_name", "inventory"],
+    ["steamid", "name", "team_name", "inventory_names"],
+    ["steamid", "name", "team_name", "weapons"],
+    ["steamid", "name", "team_name", "grenades"],
+]
 PLAYED_AT_HEADER_KEYS = (
     "played_at",
     "playedAt",
@@ -125,6 +158,7 @@ class DemoParser:
             if os.getenv("PARSE_FULL_SCOREBOARD", "false").lower() == "true":
                 kills = self._apply_scoreboard_stats(parser, players, match_start_tick)
             position_samples = self._parse_position_samples(parser, players, rounds, int(tick_rate or 64))
+            player_loadouts = self._parse_player_loadouts(parser, players, rounds, int(tick_rate or 64))
             grenades = self._parse_grenades(parser, rounds, match_start_tick)
             self._apply_team_scores(teams, rounds)
         except Exception as exc:
@@ -149,6 +183,7 @@ class DemoParser:
             kills=kills,
             grenades=grenades,
             position_samples=position_samples,
+            player_loadouts=player_loadouts,
         )
 
     def _parse_players(self, parser, match_start_tick: int = 0) -> list[ParsedPlayer]:
@@ -401,7 +436,7 @@ class DemoParser:
         try:
             rows = dataframe_to_rows(
                 parser.parse_ticks(
-                    ["steamid", "name", "team_name", "X", "Y", "Z", "is_alive"],
+                    POSITION_TICK_FIELDS,
                     ticks=sorted(tick_to_round),
                 )
             )
@@ -433,6 +468,65 @@ class DemoParser:
                 )
             )
         return samples
+
+    def _parse_player_loadouts(
+        self,
+        parser,
+        players: list[ParsedPlayer],
+        rounds: list[ParsedRound],
+        tick_rate: int = 64,
+    ) -> list[ParsedRoundPlayerLoadout]:
+        steam_ids = {player.steam_id for player in players}
+        tick_to_round: dict[int, ParsedRound] = {}
+        for round_result in rounds:
+            if round_result.started_at_demo_time is None or round_result.ended_at_demo_time is None:
+                continue
+            start = int(round_result.started_at_demo_time)
+            end = int(round_result.ended_at_demo_time)
+            for seconds in LOADOUT_SAMPLE_SECONDS:
+                target = min(end, start + int(seconds * tick_rate))
+                if target >= start:
+                    tick_to_round[target] = round_result
+
+        if not tick_to_round:
+            return []
+
+        rows = parse_loadout_tick_rows(parser, sorted(tick_to_round))
+        if not rows:
+            return []
+
+        loadouts_by_player_round: dict[tuple[int, str], dict] = {}
+        for row in rows:
+            steam_id = clean_steam_id(row.get("steamid"))
+            tick = int(row.get("tick") or 0)
+            round_result = tick_to_round.get(tick)
+            if not steam_id or steam_id not in steam_ids or not round_result:
+                continue
+            key = (round_result.round_number, steam_id)
+            start_tick = int(round_result.started_at_demo_time or tick)
+            current = loadouts_by_player_round.get(key) or {
+                "round_number": round_result.round_number,
+                "side": "T" if str(row.get("team_name")).upper() in ("T", "TERRORIST") else "CT",
+                "tick": tick,
+                "seconds": round((tick - start_tick) / tick_rate, 2),
+                "steam_id": steam_id,
+                "player_name": str(row.get("name") or steam_id),
+                "weapon": None,
+                "utility": None,
+                "inventory": None,
+            }
+
+            inventory_weapon = parse_inventory_weapon(row)
+            active_weapon = parse_active_weapon(row)
+            current["weapon"] = better_weapon(current["weapon"], inventory_weapon) or better_weapon(current["weapon"], active_weapon)
+            current["utility"] = merge_utility_values(current["utility"], parse_utility_inventory(row))
+            current["inventory"] = merge_inventory_values(current["inventory"], parse_full_inventory(row))
+            loadouts_by_player_round[key] = current
+
+        return [
+            ParsedRoundPlayerLoadout(**loadout)
+            for loadout in sorted(loadouts_by_player_round.values(), key=lambda item: (item["round_number"], item["player_name"]))
+        ]
 
     def _first_rounds_by_side(self, rounds: list[ParsedRound]) -> list[ParsedRound]:
         first_t = next((round_result for round_result in rounds if round_result.round_number <= 12), None)
@@ -583,3 +677,291 @@ def normalize_grenade_type(value: str) -> str:
     if "decoy" in lower:
         return "decoy"
     return lower
+
+
+def parse_loadout_tick_rows(parser, ticks: list[int]) -> list[dict]:
+    for fields in LOADOUT_TICK_FIELD_SETS:
+        try:
+            return dataframe_to_rows(parser.parse_ticks(fields, ticks=ticks))
+        except Exception:
+            continue
+    return []
+
+
+def parse_active_weapon(row: dict) -> str | None:
+    for key in ["active_weapon_name", "weapon_name", "weapon", "active_weapon"]:
+        value = row.get(key)
+        if not has_value(value):
+            continue
+        normalized = normalize_weapon_name(str(value))
+        if normalized:
+            return normalized
+    return None
+
+
+def parse_inventory_weapon(row: dict) -> str | None:
+    weapons: list[str] = []
+    for key in ["inventory", "inventory_names", "weapons"]:
+        weapons.extend(weapon_names_from_value(row.get(key)))
+    return best_weapon(weapons)
+
+
+def parse_full_inventory(row: dict) -> str | None:
+    items: list[str] = []
+    for key in ["inventory", "inventory_names", "weapons", "grenades"]:
+        items.extend(inventory_items_from_value(row.get(key)))
+
+    active_item = parse_active_inventory_item(row)
+    if active_item:
+        items.append(active_item)
+
+    utility_keys = {
+        "has_flashbang": "flashbang",
+        "has_smokegrenade": "smokegrenade",
+        "has_hegrenade": "hegrenade",
+        "has_molotov": "molotov",
+        "has_incgrenade": "incgrenade",
+        "has_decoy": "decoy",
+    }
+    for key, item_name in utility_keys.items():
+        if is_truthy_inventory_value(row.get(key)):
+            items.append(item_name)
+
+    unique = sorted({item for item in items if item}, key=inventory_item_sort_key, reverse=True)
+    return ", ".join(unique) if unique else None
+
+
+def parse_active_inventory_item(row: dict) -> str | None:
+    for key in ["active_weapon_name", "weapon_name", "weapon", "active_weapon"]:
+        value = row.get(key)
+        if not has_value(value):
+            continue
+        normalized = normalize_inventory_item_name(str(value))
+        if normalized:
+            return normalized
+    return None
+
+
+def normalize_weapon_name(value: str) -> str | None:
+    cleaned = value.strip().lower().replace("weapon_", "").replace("-", "_")
+    if (
+        not cleaned
+        or cleaned in {"none", "unknown", "nan"}
+        or cleaned.isdigit()
+        or is_knife_name(cleaned)
+        or is_utility_name(cleaned)
+        or is_objective_item_name(cleaned)
+    ):
+        return None
+    return cleaned
+
+
+def normalize_inventory_item_name(value: str) -> str | None:
+    cleaned = value.strip().lower().replace("weapon_", "").replace("-", "_")
+    if not cleaned or cleaned in {"none", "unknown", "nan"} or cleaned.isdigit():
+        return None
+    cleaned = re.sub(r"\s+", "_", cleaned)
+    if cleaned == "incgrenade":
+        return "molotov"
+    return normalize_grenade_type(cleaned) if is_utility_name(cleaned) else cleaned
+
+
+def inventory_items_from_value(value) -> list[str]:
+    if not has_value(value):
+        return []
+    if isinstance(value, dict):
+        names: list[str] = []
+        for key, inner in value.items():
+            normalized_key = normalize_inventory_item_name(str(key))
+            if is_truthy_inventory_value(inner) and normalized_key:
+                names.append(normalized_key)
+            names.extend(inventory_items_from_value(inner))
+        return names
+    if isinstance(value, (list, tuple, set)):
+        names = []
+        for item in value:
+            names.extend(inventory_items_from_value(item))
+        return names
+
+    text = str(value).strip()
+    if not text:
+        return []
+    parts = re.split(r"[,;|]+", text)
+    if len(parts) == 1 and "weapon_" in text:
+        parts = re.split(r"\s+", text)
+    return [
+        normalized
+        for part in parts
+        if (normalized := normalize_inventory_item_name(part))
+    ]
+
+
+def weapon_names_from_value(value) -> list[str]:
+    if not has_value(value):
+        return []
+    if isinstance(value, dict):
+        names: list[str] = []
+        for key, inner in value.items():
+            normalized_key = normalize_weapon_name(str(key))
+            if is_truthy_inventory_value(inner) and normalized_key:
+                names.append(normalized_key)
+            names.extend(weapon_names_from_value(inner))
+        return names
+    if isinstance(value, (list, tuple, set)):
+        names = []
+        for item in value:
+            names.extend(weapon_names_from_value(item))
+        return names
+
+    text = str(value)
+    return [
+        normalized
+        for part in re.split(r"[,;|\s]+", text)
+        if (normalized := normalize_weapon_name(part))
+    ]
+
+
+def better_weapon(current: str | None, candidate: str | None) -> str | None:
+    if not candidate:
+        return current
+    if not current or weapon_priority(candidate) > weapon_priority(current):
+        return candidate
+    return current
+
+
+def best_weapon(weapons: list[str]) -> str | None:
+    return max(weapons, key=weapon_priority, default=None)
+
+
+def weapon_priority(weapon: str) -> int:
+    normalized = weapon.lower()
+    if normalized in {"awp", "scar20", "g3sg1"}:
+        return 50
+    if normalized in {"ak47", "m4a1", "m4a1_silencer", "sg556", "aug", "galilar", "famas"}:
+        return 40
+    if normalized in {"p90", "mp9", "mac10", "mp7", "mp5sd", "ump45", "bizon"}:
+        return 30
+    if normalized in {"xm1014", "mag7", "nova", "sawedoff", "m249", "negev"}:
+        return 25
+    if normalized in {"deagle", "revolver", "elite", "fiveseven", "tec9", "p250", "usp_silencer", "hkp2000", "glock"}:
+        return 20
+    return 10
+
+
+def inventory_item_sort_key(item: str) -> tuple[int, str]:
+    if is_knife_name(item):
+        return (90, item)
+    if is_utility_name(item):
+        return (80, item)
+    if is_objective_item_name(item):
+        return (70, item)
+    return (100 + weapon_priority(item), item)
+
+
+def merge_inventory_values(left: str | None, right: str | None) -> str | None:
+    values = []
+    for value in [left, right]:
+        if value:
+            values.extend(part.strip() for part in value.split(",") if part.strip())
+    unique = sorted({value for value in values if value}, key=inventory_item_sort_key, reverse=True)
+    return ", ".join(unique) if unique else None
+
+
+def is_knife_name(value: str) -> bool:
+    normalized = value.replace("_", " ")
+    knife_families = {
+        "bayonet",
+        "bowie",
+        "butterfly",
+        "classic",
+        "falchion",
+        "flip",
+        "gut",
+        "huntsman",
+        "karambit",
+        "kukri",
+        "m9 bayonet",
+        "navaja",
+        "nomad",
+        "paracord",
+        "shadow daggers",
+        "skeleton",
+        "stiletto",
+        "survival",
+        "talon",
+        "ursus",
+    }
+    return "knife" in normalized or normalized in knife_families
+
+
+def is_objective_item_name(value: str) -> bool:
+    normalized = value.replace("_", " ")
+    return normalized in {"c4", "c4 explosive", "bomb"}
+
+
+def parse_utility_inventory(row: dict) -> str | None:
+    utilities: list[str] = []
+    for key in ["inventory", "inventory_names", "weapons", "grenades"]:
+        utilities.extend(utility_names_from_value(row.get(key)))
+
+    utility_keys = {
+        "has_flashbang": "flashbang",
+        "has_smokegrenade": "smokegrenade",
+        "has_hegrenade": "hegrenade",
+        "has_molotov": "molotov",
+        "has_incgrenade": "incgrenade",
+        "has_decoy": "decoy",
+    }
+    for key, grenade_type in utility_keys.items():
+        value = row.get(key)
+        if is_truthy_inventory_value(value):
+            utilities.append(grenade_type)
+
+    unique = sorted({normalize_grenade_type(name) for name in utilities if name})
+    return ", ".join(unique) if unique else None
+
+
+def merge_utility_values(left: str | None, right: str | None) -> str | None:
+    values = []
+    for value in [left, right]:
+        if value:
+            values.extend(part.strip() for part in value.split(",") if part.strip())
+    unique = sorted({normalize_grenade_type(value) for value in values})
+    return ", ".join(unique) if unique else None
+
+
+def utility_names_from_value(value) -> list[str]:
+    if not has_value(value):
+        return []
+    if isinstance(value, dict):
+        names: list[str] = []
+        for key, inner in value.items():
+            if is_truthy_inventory_value(inner) and is_utility_name(str(key)):
+                names.append(str(key))
+            names.extend(utility_names_from_value(inner))
+        return names
+    if isinstance(value, (list, tuple, set)):
+        names = []
+        for item in value:
+            names.extend(utility_names_from_value(item))
+        return names
+
+    text = str(value)
+    return [part for part in re.split(r"[,;|\s]+", text) if is_utility_name(part)]
+
+
+def is_truthy_inventory_value(value) -> bool:
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    if not has_value(value):
+        return False
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value > 0
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "0", "false", "none", "nan"}
+    return bool(value)
+
+
+def is_utility_name(value: str) -> bool:
+    normalized = normalize_grenade_type(value)
+    return normalized in {"flashbang", "smokegrenade", "hegrenade", "molotov", "decoy"}

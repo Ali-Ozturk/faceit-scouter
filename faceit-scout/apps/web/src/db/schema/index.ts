@@ -213,8 +213,27 @@ export const roundPositionSample = pgTable("round_position_sample", {
   y: doublePrecision("y").notNull(),
   z: doublePrecision("z"),
   alive: boolean("alive"),
+  weapon: text("weapon"),
+  utility: text("utility"),
 }, (table) => ({
   sampleUnique: unique("round_position_sample_unique").on(table.matchId, table.playerId, table.roundNumber, table.tick),
+}));
+
+export const roundPlayerLoadout = pgTable("round_player_loadout", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  matchId: uuid("match_id").notNull().references(() => csMatch.id, { onDelete: "cascade" }),
+  matchTeamId: uuid("match_team_id").notNull().references(() => matchTeam.id, { onDelete: "cascade" }),
+  playerId: uuid("player_id").notNull().references(() => player.id, { onDelete: "cascade" }),
+  roundNumber: integer("round_number").notNull(),
+  side: text("side").notNull(),
+  sampleTick: integer("sample_tick").notNull(),
+  sampleSeconds: doublePrecision("sample_seconds").notNull(),
+  playerName: text("player_name").notNull(),
+  weapon: text("weapon"),
+  utility: text("utility"),
+  inventory: text("inventory"),
+}, (table) => ({
+  loadoutUnique: unique("round_player_loadout_unique").on(table.matchId, table.playerId, table.roundNumber),
 }));
 
 export const teamLineup = pgTable("team_lineup", {

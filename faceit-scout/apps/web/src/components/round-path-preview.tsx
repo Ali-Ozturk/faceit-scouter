@@ -21,6 +21,9 @@ export type PositionSample = {
   y: number;
   tick?: number;
   alive: boolean | null;
+  weapon?: string | null;
+  utility?: string | null;
+  inventory?: string | null;
 };
 
 export type UtilitySample = {
@@ -63,6 +66,12 @@ type TopPositionBucket = {
   xs: number[];
   ys: number[];
   rounds: Set<string>;
+};
+
+type HoveredPlayerMarker = {
+  trackId: string;
+  sample: PositionSample;
+  index: number;
 };
 
 const colors = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c"];
@@ -278,6 +287,7 @@ function RoundPathPreviewInner({
   const [commonPositionsEnabled, setCommonPositionsEnabled] = useState(showCommonPositions);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [enabledGroups, setEnabledGroups] = useState(() => new Set(filterGroups.map((group) => group.id)));
+  const [hoveredMarker, setHoveredMarker] = useState<HoveredPlayerMarker | null>(null);
 
   useEffect(() => {
     setEnabledGroups(new Set(filterGroups.map((group) => group.id)));
@@ -394,6 +404,9 @@ function RoundPathPreviewInner({
     const playerSamples = visibleByTrack.get(track.id) ?? [];
     return playerSamples[playerSamples.length - 1] ?? firstSampleByTrack.get(track.id);
   }), [allTracks, firstSampleByTrack, visibleByTrack]);
+  const hoveredMarkerDetails = hoveredMarker
+    ? playerMarkerDetails(hoveredMarker.sample, filteredUtilities)
+    : null;
   const radarBoxStyle = radarContainerStyle(density);
   const displayRadar = useMemo(() => (
     radar ?? (samples.length ? resolveRadar(mapName, samples) : undefined)
@@ -445,6 +458,15 @@ function RoundPathPreviewInner({
         </div>
       </div>
       <div className="relative overflow-hidden rounded bg-slate-950" style={radarBoxStyle}>
+        {hoveredMarkerDetails ? (
+          <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[min(320px,calc(100%-16px))] rounded border border-white/20 bg-slate-950/90 px-3 py-2 text-xs text-white shadow-lg">
+            <div className="font-semibold leading-tight">{hoveredMarkerDetails.playerName}</div>
+            <div className="mt-1 grid gap-0.5 text-white/78">
+              <div>{hoveredMarkerDetails.roundLabel} · {hoveredMarkerDetails.side} · {hoveredMarkerDetails.timeLabel}</div>
+              <div>Inventory: {hoveredMarkerDetails.inventory}</div>
+            </div>
+          </div>
+        ) : null}
         {allowFullscreen ? (
           <button
             type="button"
@@ -474,7 +496,7 @@ function RoundPathPreviewInner({
             </text>
           ) : null}
           {heatmapPoints.map((point) => (
-            <g key={`${point.x}-${point.y}-${point.weight}`}>
+            <g key={`${point.x}-${point.y}-${point.weight}`} pointerEvents="none">
               <circle cx={point.x} cy={point.y} r={point.radius} fill={point.color} opacity={point.opacity} />
               <circle cx={point.x} cy={point.y} r={Math.max(7, point.radius * 0.28)} fill="#fff7ad" opacity={point.coreOpacity} />
             </g>
@@ -491,6 +513,7 @@ function RoundPathPreviewInner({
                 strokeLinejoin="round"
                 strokeLinecap="round"
                 opacity="0.65"
+                pointerEvents="none"
               />
             ));
           })}
@@ -501,7 +524,7 @@ function RoundPathPreviewInner({
             const color = utilityColor(utility.grenadeType);
             const landed = time >= utility.seconds;
             return (
-              <g key={utility.id}>
+              <g key={utility.id} pointerEvents="none">
                 {!landed && flight?.start ? (
                   <line
                     x1={flight.start.x}
@@ -524,23 +547,45 @@ function RoundPathPreviewInner({
             if (!sample) return null;
             const point = toRadarPoint(sample, displayRadar);
             const track = allTracks[index];
+            const trackId = sample.trackId ?? sample.playerName;
+            const hovered = hoveredMarker?.trackId === trackId;
             return (
-              <g key={`${sample.playerName}-${index}`}>
+              <g
+                key={`${sample.playerName}-${index}`}
+                className="cursor-pointer"
+                onMouseEnter={() => setHoveredMarker({ trackId, sample, index })}
+                onMouseLeave={() => setHoveredMarker((current) => current?.trackId === trackId ? null : current)}
+                onFocus={() => setHoveredMarker({ trackId, sample, index })}
+                onBlur={() => setHoveredMarker((current) => current?.trackId === trackId ? null : current)}
+                tabIndex={0}
+                role="img"
+                aria-label={playerMarkerTitle(sample)}
+              >
+                <title>{playerMarkerTitle(sample)}</title>
                 <circle
                   cx={point.x}
                   cy={point.y}
-                  r="12"
+                  r={hovered ? "16" : "12"}
                   fill={sample.alive === false ? "#64748b" : colorForTrack(track)}
-                  stroke="white"
-                  strokeWidth="4"
+                  stroke={hovered ? "#facc15" : "white"}
+                  strokeWidth={hovered ? "6" : "4"}
                   opacity={sample.alive === false ? 0.4 : 1}
                 />
-                <text x={point.x + 16} y={point.y + 4} fill="white" fontSize="18" fontWeight="700">{sample.markerLabel ?? index + 1}</text>
+                <text
+                  x={point.x + 16}
+                  y={point.y + 4}
+                  fill={hovered ? "#fef08a" : "white"}
+                  fontSize="18"
+                  fontWeight="700"
+                  pointerEvents="none"
+                >
+                  {sample.markerLabel ?? index + 1}
+                </text>
               </g>
             );
           })}
           {commonPositions.map((position) => (
-            <g key={`${position.groupKey}-${position.rank}`}>
+            <g key={`${position.groupKey}-${position.rank}`} pointerEvents="none">
               <circle
                 cx={position.x}
                 cy={position.y}
@@ -993,4 +1038,191 @@ function utilityLabel(type: string) {
   if (lower.includes("molotov") || lower.includes("inc")) return "M";
   if (lower.includes("he") || lower.includes("grenade")) return "H";
   return "U";
+}
+
+function playerMarkerTitle(sample: PositionSample) {
+  return sample.positionGroupLabel ?? sample.playerName;
+}
+
+function playerMarkerDetails(sample: PositionSample, utilities: UtilitySample[]) {
+  const matchingUtilities = utilities.filter((utility) => (
+    (!sample.playerId || utility.throwerPlayerId === sample.playerId) &&
+    (!sample.matchId || !utility.matchId || utility.matchId === sample.matchId) &&
+    (sample.roundNumber === undefined || utility.roundNumber === null || utility.roundNumber === undefined || utility.roundNumber === sample.roundNumber)
+  ));
+  return {
+    playerName: playerMarkerTitle(sample),
+    side: sample.side,
+    roundLabel: sample.roundNumber === undefined ? "Round unknown" : `Round ${sample.roundNumber}`,
+    timeLabel: `${sample.seconds.toFixed(1)}s`,
+    inventory: readableInventory(sample.inventory) ?? fallbackInventory(sample, matchingUtilities),
+  };
+}
+
+function formatLoadoutValue(value: string | null | undefined) {
+  return value?.trim() || null;
+}
+
+function fallbackInventory(sample: PositionSample, utilities: UtilitySample[]) {
+  const weapon = readableWeaponName(sample.weapon);
+  const utility = formatLoadoutValue(sample.utility)
+    ?.split(",")
+    .map((item) => readableInventoryItem(item))
+    .filter(Boolean)
+    .join(", ") || null;
+  return [weapon, utility].filter(Boolean).join(", ") || formatUtilitySummary(utilities);
+}
+
+function formatUtilitySummary(utilities: UtilitySample[]) {
+  if (utilities.length === 0) return "None seen";
+  const counts = new Map<string, number>();
+  for (const utility of utilities) {
+    const label = readableUtilityName(utility.grenadeType);
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([label, count]) => count > 1 ? `${label} x${count}` : label).join(", ");
+}
+
+function readableUtilityName(type: string) {
+  const lower = type.toLowerCase();
+  if (lower.includes("flash")) return "Flash";
+  if (lower.includes("smoke")) return "Smoke";
+  if (lower.includes("molotov")) return "Molotov";
+  if (lower.includes("inc")) return "Incendiary";
+  if (lower.includes("he")) return "HE";
+  return type;
+}
+
+function readableWeaponName(value: string | null | undefined) {
+  const normalized = formatLoadoutValue(value)?.toLowerCase().replace(/^weapon_/, "").replaceAll("-", "_");
+  if (!normalized || /^\d+$/.test(normalized) || isKnifeWeaponName(normalized) || isNonWeaponLoadoutItem(normalized)) return null;
+  const known: Record<string, string> = {
+    ak47: "AK-47",
+    aug: "AUG",
+    awp: "AWP",
+    bizon: "PP-Bizon",
+    cz75a: "CZ75-Auto",
+    deagle: "Desert Eagle",
+    elite: "Dual Berettas",
+    famas: "FAMAS",
+    fiveseven: "Five-SeveN",
+    g3sg1: "G3SG1",
+    galilar: "Galil AR",
+    glock: "Glock-18",
+    hkp2000: "P2000",
+    m249: "M249",
+    m4a1: "M4A4",
+    m4a1_silencer: "M4A1-S",
+    mac10: "MAC-10",
+    mag7: "MAG-7",
+    mp5sd: "MP5-SD",
+    mp7: "MP7",
+    mp9: "MP9",
+    negev: "Negev",
+    nova: "Nova",
+    p250: "P250",
+    p90: "P90",
+    revolver: "R8 Revolver",
+    sawedoff: "Sawed-Off",
+    scar20: "SCAR-20",
+    sg556: "SG 553",
+    ssg08: "SSG 08",
+    taser: "Zeus x27",
+    tec9: "Tec-9",
+    ump45: "UMP-45",
+    usp_silencer: "USP-S",
+    xm1014: "XM1014",
+  };
+  return known[normalized] ?? normalized
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function readableInventory(value: string | null | undefined) {
+  const items = formatLoadoutValue(value)
+    ?.split(",")
+    .map((item) => readableInventoryItem(item))
+    .filter(Boolean);
+  return items?.length ? items.join(", ") : null;
+}
+
+function readableInventoryItem(value: string | null | undefined) {
+  const normalized = formatLoadoutValue(value)?.toLowerCase().replace(/^weapon_/, "").replaceAll("-", "_").replaceAll(" ", "_");
+  if (!normalized || /^\d+$/.test(normalized)) return null;
+  return readableWeaponName(normalized) ?? readableInventoryUtilityName(normalized) ?? readableKnifeName(normalized) ?? readableObjectiveName(normalized) ?? titleizeLoadoutName(normalized);
+}
+
+function titleizeLoadoutName(value: string) {
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function isKnifeWeaponName(value: string) {
+  const normalized = value.replaceAll("_", " ");
+  const knifeFamilies = new Set([
+    "bayonet",
+    "bowie",
+    "butterfly",
+    "classic",
+    "falchion",
+    "flip",
+    "gut",
+    "huntsman",
+    "karambit",
+    "kukri",
+    "m9 bayonet",
+    "navaja",
+    "nomad",
+    "paracord",
+    "shadow daggers",
+    "skeleton",
+    "stiletto",
+    "survival",
+    "talon",
+    "ursus",
+  ]);
+  return normalized.includes("knife") || knifeFamilies.has(normalized);
+}
+
+function readableKnifeName(value: string) {
+  if (!isKnifeWeaponName(value)) return null;
+  const normalized = value.replaceAll("_", " ");
+  if (normalized === "knife t") return "T knife";
+  return `${titleizeLoadoutName(value.replace(/_?knife_?/, "_")).replace(/^T$/, "T")} knife`.replace(/\s+/g, " ").trim();
+}
+
+function readableInventoryUtilityName(value: string) {
+  const lower = value.toLowerCase();
+  if (lower.includes("flash")) return "Flash";
+  if (lower.includes("smoke")) return "Smoke";
+  if (lower.includes("molotov")) return "Molotov";
+  if (lower.includes("inc")) return "Incendiary";
+  if (lower.includes("he")) return "HE";
+  if (lower.includes("decoy")) return "Decoy";
+  return null;
+}
+
+function readableObjectiveName(value: string) {
+  const normalized = value.replaceAll("_", " ");
+  if (normalized === "c4" || normalized === "c4 explosive" || normalized === "bomb") return "C4";
+  return null;
+}
+
+function isNonWeaponLoadoutItem(value: string) {
+  const normalized = value.replaceAll("_", " ");
+  return (
+    normalized === "c4" ||
+    normalized === "c4 explosive" ||
+    normalized === "bomb" ||
+    normalized.includes("grenade") ||
+    normalized === "flashbang" ||
+    normalized === "smoke" ||
+    normalized === "molotov" ||
+    normalized === "incendiary"
+  );
 }

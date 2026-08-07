@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { and, count, countDistinct, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { csMatch, faceitAnalysisCandidate, grenadeEvent, matchPlayer, matchTeam, matchTeamLineup, player, round, roundPositionSample, teamLineup, teamLineupMember } from "@/db/schema";
+import { csMatch, faceitAnalysisCandidate, grenadeEvent, matchPlayer, matchTeam, matchTeamLineup, player, round, roundPlayerLoadout, roundPositionSample, teamLineup, teamLineupMember } from "@/db/schema";
 
 type ExactLineup = {
   id: string;
@@ -259,6 +259,32 @@ export async function getTeamMap(id: string, mapName: string) {
         .from(roundPositionSample)
         .where(inArray(roundPositionSample.matchTeamId, matchTeamIds))
     : [];
+  const loadouts = matchIds.length
+    ? await db
+        .select({
+          matchId: roundPlayerLoadout.matchId,
+          playerId: roundPlayerLoadout.playerId,
+          roundNumber: roundPlayerLoadout.roundNumber,
+          weapon: roundPlayerLoadout.weapon,
+          utility: roundPlayerLoadout.utility,
+          inventory: roundPlayerLoadout.inventory,
+        })
+        .from(roundPlayerLoadout)
+        .where(inArray(roundPlayerLoadout.matchId, matchIds))
+    : [];
+  const loadoutBySample = new Map(loadouts.map((loadout) => [
+    loadoutKey(loadout.matchId, loadout.playerId, loadout.roundNumber),
+    loadout,
+  ]));
+  const samplesWithLoadouts = samples.map((sample) => {
+    const loadout = loadoutBySample.get(loadoutKey(sample.matchId, sample.playerId, sample.roundNumber));
+    return {
+      ...sample,
+      weapon: loadout?.weapon ?? null,
+      utility: loadout?.utility ?? null,
+      inventory: loadout?.inventory ?? null,
+    };
+  });
   const utilities = matchIds.length
     ? await db
         .select({
@@ -303,7 +329,11 @@ export async function getTeamMap(id: string, mapName: string) {
         .where(inArray(round.matchId, matchIds))
     : [];
 
-  return { ...team, mapName, matches, samples, utilities, rounds };
+  return { ...team, mapName, matches, samples: samplesWithLoadouts, utilities, rounds };
+}
+
+function loadoutKey(matchId: string, playerId: string, roundNumber: number) {
+  return `${matchId}:${playerId}:${roundNumber}`;
 }
 
 async function exactLineupIdsForShortGroup(id: string) {

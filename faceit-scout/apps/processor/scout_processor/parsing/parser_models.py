@@ -84,6 +84,18 @@ class ParsedPositionSample(BaseModel):
     alive: bool | None = None
 
 
+class ParsedRoundPlayerLoadout(BaseModel):
+    round_number: int
+    side: str
+    tick: int
+    seconds: float
+    steam_id: str
+    player_name: str
+    weapon: str | None = None
+    utility: str | None = None
+    inventory: str | None = None
+
+
 class ParsedDemo(BaseModel):
     faceit_match_id: str | None = None
     internal_fingerprint: str
@@ -101,3 +113,4 @@ class ParsedDemo(BaseModel):
     bombs: list[ParsedBombEvent] = Field(default_factory=list)
     grenades: list[ParsedGrenadeEvent] = Field(default_factory=list)
     position_samples: list[ParsedPositionSample] = Field(default_factory=list)
+    player_loadouts: list[ParsedRoundPlayerLoadout] = Field(default_factory=list)
