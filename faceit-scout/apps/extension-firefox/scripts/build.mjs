@@ -1,4 +1,5 @@
 import { copyFile, cp, mkdir, rm } from "node:fs/promises";
+import { build, context } from "esbuild";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +17,7 @@ async function run(command, args) {
 
 async function copyStatic() {
   await mkdir(dist, { recursive: true });
-  await copyFile(path.join(root, "manifest.json"), path.join(dist, "manifest.json"));
+  await copyFile(path.join(root, "manifest.source.json"), path.join(dist, "manifest.json"));
   await cp(path.join(root, "src", "popup", "index.html"), path.join(dist, "popup", "index.html"), { recursive: true });
   await cp(path.join(root, "src", "popup", "popup.css"), path.join(dist, "popup", "popup.css"), { recursive: true });
   await cp(path.join(root, "public"), dist, { recursive: true });
@@ -24,8 +25,26 @@ async function copyStatic() {
 
 await rm(dist, { recursive: true, force: true });
 await copyStatic();
-await run("npx", [
-  "tsc",
-  "-p", "tsconfig.build.json",
-  ...(isWatch ? ["--watch", "--preserveWatchOutput"] : []),
-]);
+await run("npx", ["tsc", "--noEmit"]);
+
+const options = {
+  entryPoints: {
+    "background/service-worker": path.join(root, "src/background/service-worker.ts"),
+    "content/faceit-content": path.join(root, "src/content/faceit-content.ts"),
+    "popup/popup": path.join(root, "src/popup/popup.ts"),
+  },
+  bundle: true,
+  format: "iife",
+  outdir: dist,
+  platform: "browser",
+  target: "firefox121",
+};
+
+if (isWatch) {
+  const buildContext = await context(options);
+  await buildContext.watch();
+  console.log("Watching Firefox extension sources...");
+  await new Promise(() => {});
+} else {
+  await build(options);
+}
