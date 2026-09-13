@@ -27,9 +27,9 @@ async def worker(
     while True:
         path = await queue.get()
         try:
-            if not path.exists() or not is_supported_demo(path):
+            if not path.exists() or not is_supported_demo(path) or path.stat().st_size == 0:
                 continue
-            stable = await wait_until_stable(
+            stable = settings.incoming_files_are_complete or await wait_until_stable(
                 path,
                 settings.file_stability_interval_seconds,
                 settings.file_stability_required_checks,

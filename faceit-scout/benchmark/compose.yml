@@ -26,6 +26,8 @@ services:
     image: faceit-scout-benchmark-processor:local
     build: ../apps/processor
     environment:
+      PYTHONPATH: /app
+      INCOMING_FILES_ARE_COMPLETE: "true"
       DATABASE_URL: postgresql://benchmark:benchmark@postgres:5432/benchmark
       FACEIT_API_TOKEN: ""
       PROCESSOR_CONCURRENCY: ${BENCH_CONCURRENCY:-1}
@@ -35,12 +37,17 @@ services:
       FAILED_DIRECTORY: /data/failed
       DECOMPRESSED_DIRECTORY: /data/decompressed
       TEMPORARY_DIRECTORY: /data/temporary
-      OPENING_TENDENCY_PREVIEWS_ENABLED: "false"
+      OPENING_TENDENCY_PREVIEWS_ENABLED: ${BENCH_OPENING_PREVIEWS:-false}
+      PARSE_FULL_SCOREBOARD: ${BENCH_FULL_SCOREBOARD:-false}
     volumes:
-      - ${BENCH_WORK:?Run through benchmark/run.py}:/data
-      - ./collect.py:/benchmark/collect.py:ro
+      - work:/data
+      - ${BENCH_INPUTS:?Run through benchmark/run.py}:/inputs:ro
+      - ${BENCH_REPORT:?Run through benchmark/run.py}:/report
+      - ./:/benchmark:ro
+    command: ["python", "/benchmark/batch.py"]
     depends_on:
       postgres:
         condition: service_healthy
 volumes:
   database:
+  work:

@@ -9,7 +9,6 @@ from pathlib import Path
 import platform
 import random
 import re
-import shutil
 import statistics
 import subprocess
 import time
@@ -114,9 +113,11 @@ def main():
     parser.add_argument('--concurrency', type=int, nargs='+', default=[1, 2, 3])
     parser.add_argument('--repeats', type=int, default=3)
     parser.add_argument('--timeout', type=int, default=3600, help='Maximum processing seconds per run')
-    parser.add_argument('--interval', type=float, default=5, help='Monitoring/poll interval in seconds')
+    parser.add_argument('--interval', type=float, default=1, help='Host monitoring interval; precise timing is container-side')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--skip-build', action='store_true')
+    parser.add_argument('--full-scoreboard', action='store_true')
+    parser.add_argument('--opening-previews', action='store_true')
     args = parser.parse_args()
     if min(args.concurrency) < 1 or args.repeats < 1 or args.timeout < 1 or args.interval < 1:
         parser.error('Concurrency, repeats, timeout and interval must be positive (interval >= 1)')
@@ -138,56 +139,80 @@ def main():
     for index, (concurrency, repeat) in enumerate(schedule, 1):
         project = 'scoutbench-' + uuid.uuid4().hex[:12]
         run_dir = output / f'{index:02d}-c{concurrency}-r{repeat}'
-        work = run_dir / 'work'
-        for name in ('incoming', 'processing', 'completed', 'failed', 'decompressed', 'temporary'):
-            (work / name).mkdir(parents=True)
-        for item in inputs:
-            shutil.copyfile(args.demos.resolve() / item['name'], work / 'incoming' / item['name'])
-        env = dict(os.environ, BENCH_WORK=str(work), BENCH_CONCURRENCY=str(concurrency))
+        run_dir.mkdir(parents=True)
+        (run_dir / 'inputs.json').write_text(json.dumps(inputs))
+        env = dict(os.environ, BENCH_INPUTS=str(args.demos.resolve()), BENCH_REPORT=str(run_dir),
+                   BENCH_CONCURRENCY=str(concurrency), BENCH_FULL_SCOREBOARD=str(args.full_scoreboard).lower(),
+                   BENCH_OPENING_PREVIEWS=str(args.opening_previews).lower())
         base = ['docker', 'compose', '--env-file', str(ROOT / 'benchmark/empty.env'),
                 '-f', str(ROOT / 'benchmark/compose.yml'), '-p', project]
         # Explicit image names allow one build to be reused across isolated projects.
         def compose(*parts, timeout=1800):
             return command(base + list(parts), env, timeout)
-        info = {'project': project, 'concurrency': concurrency, 'repeat': repeat, 'order': index}
+        info = {'project': project, 'concurrency': concurrency, 'repeat': repeat, 'order': index,
+                'storage': 'docker_named_volume', 'timing_version': 2}
+        info.update(full_scoreboard=args.full_scoreboard, opening_previews=args.opening_previews)
         (run_dir / 'run.json').write_text(json.dumps(info, indent=2))
         print(f'[{index}/{len(schedule)}] {project}: concurrency={concurrency}, repeat={repeat}', flush=True)
+        resolved = compose('config', '--format', 'json')
+        config_path = run_dir / 'compose.json'
+        config_path.write_text(resolved)
+        base[base.index('-f') + 1] = str(config_path)
         try:
             if index == 1 and not args.skip_build:
                 (output / 'build.log').write_text(compose('build'))
             compose('up', '-d', '--wait', 'postgres')
             (run_dir / 'migration.log').write_text(compose('run', '--rm', 'migrate'))
             (run_dir / 'images.json').write_text(compose('images', '--format', 'json'))
-            # Start timer before container startup: includes startup, discovery, queue and stability.
+            (run_dir / 'staging.log').write_text(compose('run', '--rm', '--no-deps', 'processor', 'python', '/benchmark/stage.py'))
+            # The timed batch starts only after the container signals readiness.
             started = time.monotonic()
             compose('up', '-d', 'processor')
-            terminal = 0
+            processor_container = compose('ps', '--all', '-q', 'processor').strip()
+            while not (run_dir / 'ready.json').exists():
+                if time.monotonic() - started > 120:
+                    raise TimeoutError('Processor did not become ready within 120 seconds')
+                time.sleep(0.1)
+            startup_seconds = time.monotonic() - started
+            (run_dir / 'start').touch()
+            observation_started = time.monotonic()
             with (run_dir / 'resources.jsonl').open('w') as samples:
-                while terminal < len(inputs):
-                    elapsed = time.monotonic() - started
+                while not (run_dir / 'timing.json').exists():
+                    elapsed = time.monotonic() - observation_started
                     if elapsed > args.timeout:
                         raise TimeoutError(f'Processing exceeded {args.timeout} seconds')
                     processor_ids = compose('ps', '--status', 'running', '-q', 'processor').split()
                     if not processor_ids:
+                        if (run_dir / 'timing.json').exists():
+                            break
                         raise RuntimeError('Processor exited before completing the batch; inspect containers.log')
                     container_ids = processor_ids + compose('ps', '-q', 'postgres').split()
                     stats = command(['docker', 'stats', '--no-stream', '--format', '{{json .}}',
                                      *container_ids], timeout=30)
                     state = compose('ps', '--all', '--format', 'json', timeout=30)
                     samples.write(json.dumps({'elapsed_seconds': elapsed, 'containers': stats,
-                                              'state': state, 'host': proc_snapshot(),
-                                              'work_bytes': work_bytes(work)}) + '\n')
+                                              'state': state, 'host': proc_snapshot()}) + '\n')
                     samples.flush()
-                    terminal = int(compose('exec', '-T', 'postgres', 'psql', '-U', 'benchmark', '-d', 'benchmark', '-Atc',
-                        "SELECT count(*) FROM imported_demo WHERE status IN ('COMPLETED','FAILED','DUPLICATE')", timeout=30).strip())
-                    if terminal < len(inputs):
+                    if not (run_dir / 'timing.json').exists():
                         time.sleep(args.interval)
-            elapsed = time.monotonic() - started
-            compose('stop', 'processor')
+            timing = json.loads((run_dir / 'timing.json').read_text())
+            elapsed = timing['batch_seconds']
+            # Keep completion independent of how often Docker stats/polling samples finish.
+            observation_seconds = time.monotonic() - observation_started
+            exit_code = command(['docker', 'wait', processor_container], timeout=120).strip()
+            if exit_code != '0':
+                raise RuntimeError(f'Processor exited with code {exit_code}; inspect containers.log')
             data = json.loads(compose('run', '--rm', '--no-deps', 'processor', 'python', '/benchmark/collect.py'))
             (run_dir / 'database.json').write_text(json.dumps(data, indent=2))
             summary = dict(info, **summarize(data, elapsed, len(inputs)),
                            **resource_summary(run_dir / 'resources.jsonl'))
+            summary.pop('sampled_peak_work_bytes', None)
+            completion = [row['completion_seconds'] for row in timing['files'].values()]
+            summary.update(startup_seconds=round(startup_seconds, 3),
+                           host_observation_seconds=round(observation_seconds, 3),
+                           median_submission_to_completion_seconds=round(statistics.median(completion), 3),
+                           max_submission_to_completion_seconds=round(max(completion), 3),
+                           processor_cgroup_peak_memory_bytes=int(timing['cgroup_final'].get('memory.peak', '0')))
             summaries.append(summary)
             (run_dir / 'summary.json').write_text(json.dumps(summary, indent=2))
             print(json.dumps({k: v for k, v in summary.items() if k != 'stage_ms'}), flush=True)

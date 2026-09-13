@@ -158,6 +158,10 @@ Supported inputs:
 .dem.zst
 ```
 
+Docker ingestion now assumes final `.dem` / `.dem.zst` names indicate completed files (`INCOMING_FILES_ARE_COMPLETE=true`). Chrome's temporary `.crdownload` and Firefox's `.part` files remain ignored. For manual copies into the watched folder, copy with a `.part` suffix first, then rename to the final filename after copying finishes. Set `INCOMING_FILES_ARE_COMPLETE=false` in `.env` to restore stability polling for producers that write directly to final names. Direct Python runs default to polling unless configured otherwise.
+
+Decompressed scratch files now use the Docker-managed `decompressed_data` volume, so the parser reads large uncompressed demos from Linux storage on Docker Desktop. Compressed incoming/completed files still use the existing `./data` mount and download junction. Host `data/decompressed` is no longer the active scratch directory for Docker runs.
+
 Lifecycle folders:
 
 ```text

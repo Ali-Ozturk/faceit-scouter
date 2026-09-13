@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     file_stability_interval_seconds: float = 1
     file_stability_required_checks: int = 3
     file_stability_timeout_seconds: float = 60
+    incoming_files_are_complete: bool = False
     processor_concurrency: int = 3
     keep_decompressed_demos: bool = False
     max_demo_bytes: int = Field(default=4 * 1024 * 1024 * 1024)

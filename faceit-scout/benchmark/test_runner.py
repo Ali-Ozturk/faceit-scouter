@@ -1,5 +1,8 @@
 import importlib.util
 import json
+import asyncio
+import sys
+from unittest.mock import patch
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,6 +13,27 @@ spec.loader.exec_module(runner)
 
 
 class RunnerTests(unittest.TestCase):
+    def test_container_queue_timing_excludes_host_observation(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps/processor'))
+        try:
+            batch_spec = importlib.util.spec_from_file_location('batch', Path(__file__).with_name('batch.py'))
+            batch = importlib.util.module_from_spec(batch_spec)
+            batch_spec.loader.exec_module(batch)
+        finally:
+            sys.path.pop(0)
+
+        async def exercise():
+            timings = {}
+            queue = batch.TimedQueue(timings, 100.0)
+            queue.put_nowait(Path('test.dem'))
+            with patch.object(batch.time, 'perf_counter', side_effect=[102.0, 105.0]):
+                await queue.get()
+                queue.task_done()
+            await queue.join()
+            self.assertEqual(timings['test.dem'], {'queue_seconds': 2.0, 'completion_seconds': 5.0,
+                                                  'service_seconds': 3.0})
+        asyncio.run(exercise())
+
     def test_resource_peak_is_sum_at_same_sample(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'resources.jsonl'

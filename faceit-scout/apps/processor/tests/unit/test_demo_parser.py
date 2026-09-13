@@ -1,5 +1,6 @@
 from scout_processor.parsing.demo_parser import dataframe_to_rows, extract_played_at_from_header, sanitize_json_value
 from scout_processor.parsing.demo_parser import DemoParser
+from scout_processor.parsing.demo_parser import EventBatchParser
 from scout_processor.parsing.parser_models import ParsedPlayer, ParsedRound
 
 
@@ -12,6 +13,31 @@ class PandasLikeFrame:
     def to_dict(self, orient=None):
         assert orient == "records"
         return [{"steamid": "2", "name": "B"}]
+
+
+def test_event_batch_reuses_results_and_does_not_rescan_absent_events():
+    class Native:
+        def parse_events(self, names):
+            assert 'round_end' in names
+            return [('round_end', PolarsLikeFrame())]
+
+        def parse_event(self, name):
+            raise AssertionError('Unexpected repeated event scan')
+
+    parser = EventBatchParser(Native())
+    assert dataframe_to_rows(parser.parse_event('round_end')) == [{'steamid': '1', 'name': 'A'}]
+    assert dataframe_to_rows(parser.parse_event('grenade_thrown')) == []
+
+
+def test_event_batch_failure_preserves_individual_fallback():
+    class Native:
+        def parse_events(self, names):
+            raise ValueError('unsupported batch')
+
+        def parse_event(self, name):
+            return PolarsLikeFrame()
+
+    assert dataframe_to_rows(EventBatchParser(Native()).parse_event('round_end'))
 
 
 def test_dataframe_to_rows_accepts_polars_shape():

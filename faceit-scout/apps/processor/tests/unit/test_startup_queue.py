@@ -39,3 +39,31 @@ async def test_startup_drains_more_files_than_queue_capacity(monkeypatch):
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('complete', [True, False])
+async def test_worker_readiness_contract(monkeypatch, complete):
+    from unittest.mock import AsyncMock, Mock
+    from pathlib import Path
+    settings = SimpleNamespace(incoming_files_are_complete=complete,
+                               file_stability_interval_seconds=1,
+                               file_stability_required_checks=3,
+                               file_stability_timeout_seconds=60)
+    monkeypatch.setattr(Path, 'exists', lambda self: True)
+    monkeypatch.setattr(Path, 'stat', lambda self, **kwargs: SimpleNamespace(st_size=100, st_mode=0))
+    stable = AsyncMock(return_value=True)
+    process = AsyncMock()
+    monkeypatch.setattr(main, 'wait_until_stable', stable)
+    monkeypatch.setattr(main, 'process_file', process)
+    queue = asyncio.Queue()
+    queue.put_nowait(Path('completed.dem.zst'))
+    task = asyncio.create_task(main.worker('test', queue, set(), settings, Mock(), Mock(), Mock()))
+    try:
+        await asyncio.wait_for(queue.join(), 1)
+        assert stable.await_count == (0 if complete else 1)
+        process.assert_awaited_once()
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task

@@ -2,6 +2,8 @@ import importlib.metadata
 import math
 import os
 import re
+from time import perf_counter
+import structlog
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -134,6 +136,44 @@ def extract_played_at_from_header(header: dict) -> datetime | None:
     return None
 
 
+class EventBatchParser:
+    """Reuse one native event scan; preserve individual-query fallbacks."""
+
+    def __init__(self, parser):
+        self.parser = parser
+        self.events = {}
+        self.batched_names = set()
+        names = ["begin_new_match", "round_announce_match_start", "round_end",
+                 "round_freeze_end", "grenade_thrown", "flashbang_detonate",
+                 "hegrenade_detonate", "smokegrenade_detonate", "molotov_detonate",
+                 "inferno_startburn", "decoy_detonate"]
+        if os.getenv("PARSE_FULL_SCOREBOARD", "false").lower() == "true":
+            names.extend(["player_death", "player_hurt"])
+        started = perf_counter()
+        try:
+            self.events = dict(parser.parse_events(names))
+            self.batched_names = set(names)
+        except Exception:
+            # Older native versions/demos may not support batching all events.
+            self.events = {}
+        structlog.get_logger(__name__).info("parser_event_batch", duration_ms=round((perf_counter()-started)*1000), cached_events=len(self.events))
+
+    def parse_event(self, name):
+        if name in self.batched_names and name not in self.events:
+            return EmptyEventRows()
+        if name not in self.events:
+            self.events[name] = self.parser.parse_event(name)
+        return self.events[name]
+
+    def __getattr__(self, name):
+        return getattr(self.parser, name)
+
+
+class EmptyEventRows:
+    def to_dicts(self):
+        return []
+
+
 class DemoParser:
     def parse(self, demo_path: Path, checksum: str | None = None) -> ParsedDemo:
         try:
@@ -145,7 +185,7 @@ class DemoParser:
         faceit_match_id = extract_faceit_match_id(demo_path.name)
 
         try:
-            parser = Demoparser2(str(demo_path))
+            parser = EventBatchParser(Demoparser2(str(demo_path)))
             header = parser.parse_header()
             map_name = header.get("map_name") or header.get("map") or "unknown"
             played_at = extract_played_at_from_header(header)

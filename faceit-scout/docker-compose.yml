@@ -41,12 +41,15 @@ services:
       DECOMPRESSED_DIRECTORY: /data/decompressed
       TEMPORARY_DIRECTORY: /data/temporary
       PROCESSOR_CONCURRENCY: ${PROCESSOR_CONCURRENCY:-3}
+      INCOMING_FILES_ARE_COMPLETE: ${INCOMING_FILES_ARE_COMPLETE:-true}
       OPENING_TENDENCY_PREVIEWS_ENABLED: ${OPENING_TENDENCY_PREVIEWS_ENABLED:-false}
     volumes:
       - ./data:/data
+      - decompressed_data:/data/decompressed
     depends_on:
       postgres:
         condition: service_healthy
 
 volumes:
   postgres_data:
+  decompressed_data:
