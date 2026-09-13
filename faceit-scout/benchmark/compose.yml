@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: benchmark
+      POSTGRES_PASSWORD: benchmark
+      POSTGRES_DB: benchmark
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U benchmark -d benchmark"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  migrate:
+    image: faceit-scout-benchmark-migrate:local
+    build:
+      context: ../apps/web
+      dockerfile: ../../benchmark/migrate.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://benchmark:benchmark@postgres:5432/benchmark
+    depends_on:
+      postgres:
+        condition: service_healthy
+  processor:
+    image: faceit-scout-benchmark-processor:local
+    build: ../apps/processor
+    environment:
+      DATABASE_URL: postgresql://benchmark:benchmark@postgres:5432/benchmark
+      FACEIT_API_TOKEN: ""
+      PROCESSOR_CONCURRENCY: ${BENCH_CONCURRENCY:-1}
+      INCOMING_DIRECTORY: /data/incoming
+      PROCESSING_DIRECTORY: /data/processing
+      COMPLETED_DIRECTORY: /data/completed
+      FAILED_DIRECTORY: /data/failed
+      DECOMPRESSED_DIRECTORY: /data/decompressed
+      TEMPORARY_DIRECTORY: /data/temporary
+      OPENING_TENDENCY_PREVIEWS_ENABLED: "false"
+    volumes:
+      - ${BENCH_WORK:?Run through benchmark/run.py}:/data
+      - ./collect.py:/benchmark/collect.py:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+volumes:
+  database:

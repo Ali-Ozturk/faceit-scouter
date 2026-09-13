@@ -1,5 +1,7 @@
 # FACEIT Scout
 
+For isolated VPS performance testing of the production parser and PostgreSQL persistence, see the [benchmark README](benchmark/README.md) and [VPS benchmark guide](docs/vps-benchmark.md).
+
 Local FACEIT CS2 demo ingestion and scouting dashboard.
 
 FACEIT Scout runs three services:
