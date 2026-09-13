@@ -17,6 +17,17 @@ Browser extensions are available for demo discovery/download:
 - `apps/extension`: Chrome / Chromium extension.
 - `apps/extension-firefox`: Firefox extension.
 
+### Publishing extension releases
+
+Pushing a numeric extension tag such as `v0.2.0` runs `.github/workflows/release-extensions.yml`. The workflow tests and builds both extensions, sets both manifest versions from the tag, creates Chrome and Firefox ZIP files with `manifest.json` at each archive root, generates `SHA256SUMS.txt`, and attaches all three files to the matching GitHub Release. Tags must contain one to four numeric components after `v` because browser extension manifest versions are numeric.
+
+```powershell
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The workflow can also be run manually from GitHub Actions with an existing tag. A manual rerun replaces existing extension assets with the newly built files.
+
 ## Requirements
 
 For the normal Docker setup you only need:
