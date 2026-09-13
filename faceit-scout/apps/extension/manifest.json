@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "FACEIT Scout",
-  "description": "Find and download relevant FACEIT demos for local scouting.",
-  "version": "0.1.0",
+  "description": "Discover FACEIT matches and import up to three demos into a local or remote Scout backend.",
+  "version": "0.2.0",
   "action": {
     "default_popup": "popup/index.html",
     "default_title": "FACEIT Scout"
@@ -13,18 +13,35 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.faceit.com/*", "https://*.faceit.com/*"],
-      "js": ["content/faceit-content.js"],
+      "matches": [
+        "https://www.faceit.com/*",
+        "https://*.faceit.com/*"
+      ],
+      "js": [
+        "content/faceit-content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
-  "permissions": ["activeTab", "downloads", "scripting", "storage", "tabs", "webRequest"],
+  "permissions": [
+    "activeTab",
+    "downloads",
+    "scripting",
+    "storage",
+    "tabs",
+    "webRequest",
+    "alarms"
+  ],
   "host_permissions": [
     "http://localhost/*",
     "http://127.0.0.1/*",
     "https://www.faceit.com/*",
     "https://*.faceit.com/*",
     "https://*.amazonaws.com/*",
-    "https://*.cloudfront.net/*"
+    "https://*.cloudfront.net/*",
+    "https://*.backblazeb2.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
   ]
 }

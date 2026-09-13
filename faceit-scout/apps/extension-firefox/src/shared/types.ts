@@ -1,5 +1,7 @@
 export type ExtensionSettings = {
   backendUrl: string;
+  importKey: string;
+  downloadMode: "server" | "browser";
   faceitPlayerId: string;
   preferredDownloadSubdirectory: string;
   maxConcurrentDownloads: number;
@@ -23,7 +25,7 @@ export type AnalysisResponse = {
   warnings?: string[];
 };
 
-export type DownloadState = "queued" | "opening" | "waiting_for_user" | "downloading" | "completed" | "unavailable" | "failed";
+export type DownloadState = "queued" | "opening" | "waiting_for_user" | "downloading" | "processing" | "completed" | "unavailable" | "failed";
 
 export type DownloadStatus = {
   faceitMatchId: string;

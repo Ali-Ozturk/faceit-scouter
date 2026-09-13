@@ -28,6 +28,7 @@ services:
     environment:
       PYTHONPATH: /app
       INCOMING_FILES_ARE_COMPLETE: "true"
+      KEEP_COMPLETED_DEMOS: "true"
       DATABASE_URL: postgresql://benchmark:benchmark@postgres:5432/benchmark
       FACEIT_API_TOKEN: ""
       PROCESSOR_CONCURRENCY: ${BENCH_CONCURRENCY:-1}

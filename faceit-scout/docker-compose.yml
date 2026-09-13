@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-faceit_scout}
       POSTGRES_DB: ${POSTGRES_DB:-faceit_scout}
     ports:
-      - "${POSTGRES_HOST_PORT:-5434}:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5434}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,9 +21,16 @@ services:
     environment:
       DATABASE_URL: postgresql://faceit_scout:faceit_scout@postgres:5432/faceit_scout
       FACEIT_API_TOKEN: ${FACEIT_API_TOKEN:-}
+      SCOUT_IMPORT_KEY: ${SCOUT_IMPORT_KEY:-}
+      DEMO_DOWNLOAD_HOSTS: ${DEMO_DOWNLOAD_HOSTS:-demos-europe-central-faceit-cdn.s3.eu-central-003.backblazeb2.com,demos-us-east-faceit-cdn.s3.us-east-005.backblazeb2.com}
       OPENING_TENDENCY_PREVIEWS_ENABLED: ${OPENING_TENDENCY_PREVIEWS_ENABLED:-false}
     ports:
-      - "${WEB_HOST_PORT:-3101}:3000"
+      - "127.0.0.1:${WEB_HOST_PORT:-3101}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
     depends_on:
       postgres:
         condition: service_healthy
@@ -35,21 +42,28 @@ services:
       DATABASE_URL: postgresql://faceit_scout:faceit_scout@postgres:5432/faceit_scout
       FACEIT_API_TOKEN: ${FACEIT_API_TOKEN:-}
       INCOMING_DIRECTORY: /data/incoming
-      PROCESSING_DIRECTORY: /data/processing
+      PROCESSING_DIRECTORY: /data/runtime/processing
       COMPLETED_DIRECTORY: /data/completed
       FAILED_DIRECTORY: /data/failed
       DECOMPRESSED_DIRECTORY: /data/decompressed
-      TEMPORARY_DIRECTORY: /data/temporary
+      TEMPORARY_DIRECTORY: /data/runtime/temporary
       PROCESSOR_CONCURRENCY: ${PROCESSOR_CONCURRENCY:-3}
+      URL_IMPORTS_ENABLED: "true"
+      KEEP_COMPLETED_DEMOS: ${KEEP_COMPLETED_DEMOS:-false}
+      DEMO_DOWNLOAD_HOSTS: ${DEMO_DOWNLOAD_HOSTS:-demos-europe-central-faceit-cdn.s3.eu-central-003.backblazeb2.com,demos-us-east-faceit-cdn.s3.us-east-005.backblazeb2.com}
       INCOMING_FILES_ARE_COMPLETE: ${INCOMING_FILES_ARE_COMPLETE:-true}
       OPENING_TENDENCY_PREVIEWS_ENABLED: ${OPENING_TENDENCY_PREVIEWS_ENABLED:-false}
     volumes:
       - ./data:/data
       - decompressed_data:/data/decompressed
+      - downloads_data:/data/runtime
     depends_on:
+      web:
+        condition: service_healthy
       postgres:
         condition: service_healthy
 
 volumes:
   postgres_data:
   decompressed_data:
+  downloads_data:

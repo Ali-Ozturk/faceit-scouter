@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     incoming_files_are_complete: bool = False
     processor_concurrency: int = 3
     keep_decompressed_demos: bool = False
+    keep_completed_demos: bool = False
+    url_imports_enabled: bool = False
+    demo_download_hosts: str = "demos-europe-central-faceit-cdn.s3.eu-central-003.backblazeb2.com,demos-us-east-faceit-cdn.s3.us-east-005.backblazeb2.com"
+    max_download_bytes: int = Field(default=2_000_000_000, gt=0, le=2_000_000_000)
+    demo_download_timeout_seconds: int = Field(default=600, gt=0)
     max_demo_bytes: int = Field(default=4 * 1024 * 1024 * 1024)
 
     parser_name: str = "demoparser2"

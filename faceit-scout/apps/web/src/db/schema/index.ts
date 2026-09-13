@@ -60,6 +60,18 @@ export const importStageLog = pgTable("import_stage_log", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const demoDownload = pgTable("demo_download", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  faceitMatchId: text("faceit_match_id").notNull(),
+  signedUrl: text("signed_url"),
+  fileName: text("file_name"),
+  status: text("status").notNull().default("QUEUED"),
+  error: text("error"),
+  importId: uuid("import_id").references(() => importedDemo.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const csMatch = pgTable("cs_match", {
   id: uuid("id").defaultRandom().primaryKey(),
   faceitMatchId: text("faceit_match_id"),

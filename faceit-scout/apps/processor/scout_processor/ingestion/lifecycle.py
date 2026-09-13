@@ -36,6 +36,7 @@ async def process_file(
     imported = imports.create_or_get(path)
     claimed_path: Path | None = None
     demo_path: Path | None = None
+    committed = False
 
     try:
         stage_started_at = perf_counter()
@@ -53,7 +54,7 @@ async def process_file(
         log_stage_timing(imports, "duplicate_lookup", stage_started_at, worker_name, imported.id, path.name)
         if duplicate:
             stage_started_at = perf_counter()
-            completed = move_file(claimed_path, settings.completed_directory)
+            completed = move_file(claimed_path, settings.completed_directory) if settings.keep_completed_demos else claimed_path
             imports.update_status(
                 imported.id,
                 ImportStatus.DUPLICATE,
@@ -62,13 +63,15 @@ async def process_file(
                 duplicate_of_import_id=duplicate.id,
                 parsed_match_id=duplicate.parsed_match_id,
             )
+            committed = True
+            cleanup_completed(imported.id, completed, settings, imports)
             log_stage_timing(imports, "duplicate_move", stage_started_at, worker_name, imported.id, path.name)
             log_stage_timing(imports, "total", total_started_at, worker_name, imported.id, path.name)
             return
 
         imports.update_status(imported.id, ImportStatus.DECOMPRESSING, sha256_checksum=checksum)
         stage_started_at = perf_counter()
-        demo_path = await asyncio.to_thread(decompress_if_needed, claimed_path, settings.decompressed_directory)
+        demo_path = await asyncio.to_thread(decompress_if_needed, claimed_path, settings.decompressed_directory, settings.max_demo_bytes)
         log_stage_timing(imports, "decompress", stage_started_at, worker_name, imported.id, path.name)
 
         imports.update_status(imported.id, ImportStatus.PARSING, parser_name=settings.parser_name, parser_version=parser_version(), schema_version=settings.schema_version)
@@ -103,21 +106,74 @@ async def process_file(
             if db_import is None:
                 raise ProcessingError(ErrorCode.DATABASE_PERSISTENCE_FAILED, "Import row disappeared")
             persist_parsed_demo(session, db_import, parsed)
+            from datetime import datetime, UTC
+            db_import.status = ImportStatus.COMPLETED
+            db_import.processing_completed_at = datetime.now(UTC)
             session.commit()
+            committed = True
         log_stage_timing(imports, "persist", stage_started_at, worker_name, imported.id, path.name)
 
         stage_started_at = perf_counter()
-        completed = move_file(claimed_path, settings.completed_directory)
+        completed = move_file(claimed_path, settings.completed_directory) if settings.keep_completed_demos else claimed_path
         imports.update_status(imported.id, ImportStatus.COMPLETED, current_path=str(completed), faceit_match_id=parsed.faceit_match_id)
-        if demo_path != claimed_path and demo_path.exists() and not settings.keep_decompressed_demos:
-            demo_path.unlink()
+        cleanup_completed(imported.id, completed, settings, imports)
         log_stage_timing(imports, "completion_move", stage_started_at, worker_name, imported.id, path.name)
         log_stage_timing(imports, "total", total_started_at, worker_name, imported.id, path.name)
         logger.info("import_completed", import_id=str(imported.id), file_name=path.name, checksum=checksum, map_name=parsed.map_name, duration_ms=duration_ms(total_started_at))
     except ProcessingError as exc:
-        await _fail(imported.id, claimed_path or path, settings, imports, exc.code.value, exc.message)
+        if not committed:
+            await _fail(imported.id, claimed_path or path, settings, imports, exc.code.value, exc.message)
+        else:
+            logger.warning("post_commit_cleanup_pending", import_id=str(imported.id))
     except Exception as exc:
-        await _fail(imported.id, claimed_path or path, settings, imports, ErrorCode.UNKNOWN_ERROR.value, str(exc))
+        if not committed:
+            await _fail(imported.id, claimed_path or path, settings, imports, ErrorCode.UNKNOWN_ERROR.value, str(exc))
+        else:
+            logger.warning("post_commit_cleanup_pending", import_id=str(imported.id))
+    finally:
+        if demo_path and demo_path != claimed_path and not settings.keep_decompressed_demos:
+            try:
+                demo_path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("scratch_cleanup_pending", import_id=str(imported.id))
+
+
+def cleanup_completed(import_id, source, settings, imports):
+    if settings.keep_completed_demos:
+        return
+    try:
+        if source.name.endswith('.dem.zst') and not settings.keep_decompressed_demos:
+            (settings.decompressed_directory / source.name.removesuffix('.zst')).unlink(missing_ok=True)
+        source.unlink(missing_ok=True)
+        # Preserve the terminal status while clearing the now-removed file path.
+        from sqlalchemy import update
+        from scout_processor.database.models import ImportedDemo
+        with imports.session_factory() as session:
+            session.execute(update(ImportedDemo).where(ImportedDemo.id == import_id).values(current_path=None))
+            session.commit()
+    except Exception:
+        # A cleanup failure must never turn persisted results into a failed import.
+        logger.warning("completed_cleanup_pending", import_id=str(import_id))
+
+
+async def cleanup_loop(settings, imports):
+    from sqlalchemy import select
+    from scout_processor.database.models import ImportedDemo
+    while True:
+        if not settings.keep_completed_demos:
+            try:
+                with imports.session_factory() as session:
+                    rows = session.scalars(select(ImportedDemo).where(
+                        ImportedDemo.status.in_([ImportStatus.COMPLETED, ImportStatus.DUPLICATE]),
+                        ImportedDemo.current_path.is_not(None),
+                    )).all()
+                for row in rows:
+                    path = Path(row.current_path)
+                    if path.resolve().parent in {settings.processing_directory.resolve(), settings.completed_directory.resolve()}:
+                        cleanup_completed(row.id, path, settings, imports)
+            except Exception:
+                logger.warning("retention_cleanup_retry")
+        await asyncio.sleep(60)
 
 
 async def _fail(import_id, source: Path, settings: Settings, imports: ImportRepository, code: str, message: str) -> None:

@@ -2,7 +2,28 @@ import type { AnalysisResponse, BackendAnalysisInput } from "../shared/types.js"
 
 export function normalizeBackendUrl(value: string) {
   const trimmed = value.trim().replace(/\/+$/, "");
-  return trimmed || "http://localhost:3101";
+  const url = new URL(trimmed || "http://localhost:3101");
+  if (url.username || url.password || url.search || url.hash || url.pathname !== "/"
+      || (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname)))) {
+    throw new Error("Use an HTTPS server origin, or http://localhost:3101 for local use.");
+  }
+  return url.origin;
+}
+
+export type ServerJob = { id: string; faceitMatchId: string; status: string; importStatus?: string; error?: string };
+
+export async function demoJobs(backendUrl: string, key: string, demos?: Array<{ faceitMatchId: string; url: string }>): Promise<ServerJob[]> {
+  if (key.trim().length < 24) throw new Error("Set the import access key from your backend .env (at least 24 characters).");
+  const response = await fetch(`${normalizeBackendUrl(backendUrl)}/api/demo-downloads`, {
+    method: demos ? "POST" : "GET",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key.trim()}` },
+    ...(demos ? { body: JSON.stringify({ demos }) } : {}),
+    redirect: "error",
+    signal: AbortSignal.timeout(15000),
+  });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || `Import request failed (${response.status}).`);
+  return body.jobs;
 }
 
 export function createAnalysisRequest(input: BackendAnalysisInput) {

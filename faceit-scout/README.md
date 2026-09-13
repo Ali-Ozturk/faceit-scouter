@@ -1,5 +1,7 @@
 # FACEIT Scout
 
+For v2 extension-to-backend downloads, three-demo queue limits, automatic demo cleanup, and local setup, follow the [v2 local import guide](docs/v2-local-imports.md). The same extension can target a remote HTTPS backend later.
+
 For isolated VPS performance testing of the production parser and PostgreSQL persistence, see the [benchmark README](benchmark/README.md) and [VPS benchmark guide](docs/vps-benchmark.md).
 
 Local FACEIT CS2 demo ingestion and scouting dashboard.
@@ -160,14 +162,14 @@ Supported inputs:
 
 Docker ingestion now assumes final `.dem` / `.dem.zst` names indicate completed files (`INCOMING_FILES_ARE_COMPLETE=true`). Chrome's temporary `.crdownload` and Firefox's `.part` files remain ignored. For manual copies into the watched folder, copy with a `.part` suffix first, then rename to the final filename after copying finishes. Set `INCOMING_FILES_ARE_COMPLETE=false` in `.env` to restore stability polling for producers that write directly to final names. Direct Python runs default to polling unless configured otherwise.
 
-Decompressed scratch files now use the Docker-managed `decompressed_data` volume, so the parser reads large uncompressed demos from Linux storage on Docker Desktop. Compressed incoming/completed files still use the existing `./data` mount and download junction. Host `data/decompressed` is no longer the active scratch directory for Docker runs.
+Decompressed scratch files use the Docker-managed `decompressed_data` volume. V2 server downloads and claimed files use `downloads_data` under `/data/runtime`; host `data/processing` is no longer the active Docker processing directory. Legacy incoming files and retained completed/failed files use the existing `./data` mount. Successful originals are deleted by default (`KEEP_COMPLETED_DEMOS=false`).
 
-Lifecycle folders:
+Native Python lifecycle folders (Docker overrides processing, decompressed, and temporary paths):
 
 ```text
 data/incoming      new files only
 data/processing    claimed files being processed
-data/completed     successfully handled originals, including duplicates
+data/completed     successful originals only when KEEP_COMPLETED_DEMOS=true
 data/failed        permanently failed originals
 data/decompressed  temporary .dem output from .dem.zst
 data/temporary     scratch space
@@ -184,6 +186,8 @@ The extension uses:
 - The backend `FACEIT_API_TOKEN` from `.env` for match discovery
 
 It does not store or send FACEIT cookies/session tokens to the backend.
+
+V2 defaults to backend downloads. Run `node scripts/setup-v2.mjs` from the project root, copy `SCOUT_IMPORT_KEY` from `.env` into the popup, and click **Save connection / grant host permission**. See the [ordered v2 guide](docs/v2-local-imports.md) for the full setup. The download subdirectory below applies only to legacy browser-download mode.
 
 ### Chrome / Edge
 
@@ -231,9 +235,9 @@ FACEIT player ID or nickname: your FACEIT player ID or nickname
 Download subdirectory: FaceitScout/incoming
 ```
 
-### Getting Downloads Into `data/incoming`
+### Legacy mode: Getting Downloads Into `data/incoming`
 
-Chrome and Firefox save extension downloads relative to the browser's configured Downloads folder. With the default extension setting, demos land in:
+Select **Browser download folder (legacy)** to use this flow. Chrome and Firefox save these downloads relative to the browser's configured Downloads folder. With the default subdirectory setting, demos land in:
 
 ```text
 <Downloads>/FaceitScout/incoming

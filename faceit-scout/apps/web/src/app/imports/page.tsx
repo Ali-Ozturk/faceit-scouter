@@ -5,6 +5,10 @@ import { formatDate, formatDuration } from "@/lib/format";
 import { ImportStageLogs, ImportStageSummary } from "@/components/import-stage-logs";
 import { StatusBadge } from "@/components/status-badge";
 import { Table, Th } from "@/components/table";
+import { db } from "@/db";
+import { demoDownload } from "@/db/schema";
+import { desc } from "drizzle-orm";
+import { DownloadQueue } from "@/components/download-queue";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 3;
@@ -13,6 +17,8 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
   const params = await searchParams;
   const status = params.status && isImportStatus(params.status) ? params.status : undefined;
   const rows = await getImports(status);
+  const jobs = await db.select({ id: demoDownload.id, faceitMatchId: demoDownload.faceitMatchId,
+    status: demoDownload.status, error: demoDownload.error }).from(demoDownload).orderBy(desc(demoDownload.createdAt)).limit(10);
 
   return (
     <div className="space-y-6">
@@ -20,6 +26,7 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
         <h1 className="text-3xl font-bold">Imports</h1>
         <p className="mt-2 text-slate-600">Current and historical demo processing states.</p>
       </div>
+      <DownloadQueue jobs={jobs} />
       <div className="flex flex-wrap gap-2">
         <a className="rounded border bg-white px-3 py-2 text-sm" href="/imports">All</a>
         {importStatus.enumValues.map((value) => <a key={value} className="rounded border bg-white px-3 py-2 text-sm" href={`/imports?status=${value}`}>{value}</a>)}

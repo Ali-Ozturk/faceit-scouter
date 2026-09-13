@@ -8,7 +8,7 @@ from scout_processor import main
 
 @pytest.mark.asyncio
 async def test_startup_drains_more_files_than_queue_capacity(monkeypatch):
-    settings = SimpleNamespace(processor_concurrency=1, log_level='INFO',
+    settings = SimpleNamespace(processor_concurrency=1, log_level='INFO', keep_completed_demos=True, url_imports_enabled=False,
                                incoming_directory='/unused', ensure_directories=lambda: None)
     drained = asyncio.Event()
 

@@ -1,9 +1,11 @@
-import { createAnalysisRequest } from "../api/backend.js";
+import { createAnalysisRequest, normalizeBackendUrl } from "../api/backend.js";
 import { candidatesForDownload, unprocessedCandidateIds } from "../downloads/selection.js";
 import type { AnalysisCandidate, AnalysisResponse, DownloadStatus, ExtensionSettings } from "../shared/types.js";
 import { getPopupState, getStoredDownloadStatuses, savePopupState } from "../storage/popup-state.js";
 
 const backendUrlInput = input("backend-url");
+const importKeyInput = input("import-key");
+const downloadModeInput = element("download-mode") as HTMLSelectElement;
 const playerIdInput = input("player-id");
 const downloadSubdirectoryInput = input("download-subdirectory");
 const matchIdInput = input("match-id");
@@ -32,13 +34,15 @@ async function init() {
   const settings = await sendMessage<ExtensionSettings>({ type: "GET_SETTINGS" });
   const popupState = await getPopupState();
   backendUrlInput.value = settings.backendUrl;
+  importKeyInput.value = settings.importKey;
+  downloadModeInput.value = settings.downloadMode;
   playerIdInput.value = settings.faceitPlayerId;
   downloadSubdirectoryInput.value = settings.preferredDownloadSubdirectory;
   matchIdInput.value = popupState.matchId;
   selectedMapInput.value = popupState.selectedMap;
   currentAnalysis = popupState.analysis ? sortAnalysisCandidates(popupState.analysis) : null;
   currentAnalysisMinimumSharedPlayers = popupState.analysisMinimumSharedPlayers;
-  selectedIds = new Set(popupState.selectedCandidateIds);
+  selectedIds = new Set(popupState.selectedCandidateIds.slice(0, 3));
   statuses = await getStoredDownloadStatuses();
 
   if (currentAnalysis) {
@@ -50,7 +54,17 @@ async function init() {
     await detectCurrentMatch();
   }
 
-  backendUrlInput.addEventListener("change", saveSettings);
+  element("save-connection").addEventListener("click", () => {
+    try {
+      const origin = normalizeBackendUrl(backendUrlInput.value);
+      // Request on a direct user gesture; only this server's origin is granted.
+      chrome.permissions.request({ origins: [`${origin}/*`] }).then(async granted => {
+        if (!granted) throw new Error("Host permission was declined.");
+        await saveSettings();
+        showMessage("Connection saved. Your FACEIT cookies remain in your browser.");
+      }).catch(error => showMessage(error.message));
+    } catch (error) { showMessage(error instanceof Error ? error.message : "Invalid server address."); }
+  });
   playerIdInput.addEventListener("change", saveSettings);
   downloadSubdirectoryInput.addEventListener("change", saveSettings);
   matchIdInput.addEventListener("input", persistPopupState);
@@ -58,10 +72,10 @@ async function init() {
   detectMatchButton.addEventListener("click", () => detectCurrentMatch());
   startAnalysisButton.addEventListener("click", () => startAnalysis(4));
   fallbackAnalysisButton.addEventListener("click", () => startAnalysis(3));
-  downloadAllButton.addEventListener("click", () => startDownloads([...unprocessedCandidateIds(currentAnalysis?.candidates ?? [])]));
+  downloadAllButton.addEventListener("click", () => startDownloads([...unprocessedCandidateIds(currentAnalysis?.candidates ?? [])].slice(0, 3)));
   downloadSelectedButton.addEventListener("click", () => startDownloads([...selectedIds]));
   selectAllButton.addEventListener("click", () => {
-    selectedIds = unprocessedCandidateIds(currentAnalysis?.candidates ?? []);
+    selectedIds = new Set([...unprocessedCandidateIds(currentAnalysis?.candidates ?? [])].slice(0, 3));
     persistPopupState();
     renderCandidates();
   });
@@ -83,6 +97,8 @@ async function saveSettings() {
     type: "SAVE_SETTINGS",
     settings: {
       backendUrl: backendUrlInput.value,
+      importKey: importKeyInput.value.trim(),
+      downloadMode: downloadModeInput.value,
       faceitPlayerId: playerIdInput.value,
       preferredDownloadSubdirectory: downloadSubdirectoryInput.value,
     },
@@ -138,7 +154,7 @@ async function startAnalysis(minimumSharedPlayers = 4) {
 
   currentAnalysis = sortAnalysisCandidates(response);
   currentAnalysisMinimumSharedPlayers = response.minimumSharedPlayers ?? minimumSharedPlayers;
-  selectedIds = unprocessedCandidateIds(currentAnalysis.candidates);
+  selectedIds = new Set([...unprocessedCandidateIds(currentAnalysis.candidates)].slice(0, 3));
   statuses = [];
   showMessage(analysisMessage(response, currentAnalysisMinimumSharedPlayers));
   await persistPopupState();
@@ -147,15 +163,22 @@ async function startAnalysis(minimumSharedPlayers = 4) {
 
 async function startDownloads(ids: string[]) {
   if (!currentAnalysis) return;
+  await saveSettings();
   const idSet = new Set(ids);
   const candidates = candidatesForDownload(currentAnalysis.candidates, idSet, false);
   if (candidates.length === 0) {
     showMessage("No unprocessed selected matches to download.");
     return;
   }
+  if (candidates.length > 3) { showMessage("Choose at most three demos."); return; }
   showMessage(`Starting ${candidates.length} download${candidates.length === 1 ? "" : "s"}...`);
   await persistPopupState();
-  await sendMessage({ type: "START_DOWNLOADS", candidates, includeProcessed: false });
+  downloadSelectedButton.disabled = downloadAllButton.disabled = true;
+  try {
+    const response = await sendMessage<{ error?: string }>({ type: "START_DOWNLOADS", candidates, includeProcessed: false });
+    if (response.error) showMessage(response.error);
+  } catch (error) { showMessage(error instanceof Error ? error.message : "Submission interrupted. Check Imports before retrying."); }
+  finally { downloadSelectedButton.disabled = downloadAllButton.disabled = false; }
 }
 
 function renderAnalysis() {
@@ -194,6 +217,7 @@ function renderCandidates() {
     `;
     const checkbox = row.querySelector<HTMLInputElement>("input[type='checkbox']");
     checkbox?.addEventListener("change", () => {
+      if (checkbox.checked && selectedIds.size >= 3) { checkbox.checked = false; showMessage("Choose at most three demos."); return; }
       if (checkbox.checked) selectedIds.add(candidate.faceitMatchId);
       else selectedIds.delete(candidate.faceitMatchId);
       persistPopupState();

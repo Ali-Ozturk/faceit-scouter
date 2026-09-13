@@ -1,8 +1,8 @@
-import { createAnalysis } from "../api/backend.js";
+import { extensionApi } from "../shared/extension-api.js";
+import { createAnalysis, demoJobs } from "../api/backend.js";
 import { createDemoFilename } from "../downloads/filename.js";
 import { runBoundedQueue } from "../downloads/queue.js";
 import { createFaceitMatchroomUrl, extractFaceitMatchId } from "../faceit/match-url.js";
-import { extensionApi } from "../shared/extension-api.js";
 import { isExtensionMessage } from "../shared/messages.js";
 import type { AnalysisCandidate, CurrentFaceitMatch, DownloadStatus } from "../shared/types.js";
 import { DOWNLOAD_STATUS_KEY } from "../storage/popup-state.js";
@@ -10,11 +10,16 @@ import { getSettings, saveSettings } from "../storage/settings.js";
 
 const capturedDemoUrls = new Map<string, string>();
 const pendingDemoCaptures = new Map<number, string>();
+let startingDownloads = false;
+
+extensionApi.alarms.create("refresh-imports", { periodInMinutes: 0.5 });
+extensionApi.alarms.onAlarm.addListener(() => { refreshServerJobs().catch(() => undefined); });
 
 extensionApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!isExtensionMessage(message)) return false;
 
   if (message.type === "GET_SETTINGS") {
+    refreshServerJobs().catch(() => undefined);
     getSettings().then(sendResponse);
     return true;
   }
@@ -38,7 +43,12 @@ extensionApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === "START_DOWNLOADS") {
-    startDownloads(message.candidates, message.includeProcessed).then(sendResponse);
+    if (startingDownloads) { sendResponse({ error: "A submission is already in progress." }); return false; }
+    startingDownloads = true;
+    startDownloads(message.candidates, message.includeProcessed)
+      .then(sendResponse)
+      .catch(error => sendResponse({ error: errorMessage(error) }))
+      .finally(() => { startingDownloads = false; });
     return true;
   }
 
@@ -74,7 +84,7 @@ extensionApi.webRequest?.onCompleted?.addListener?.(
     const matchId = extractMatchIdFromDemoUrl(details.url);
     if (matchId) capturedDemoUrls.set(matchId, details.url);
   },
-  { urls: ["https://*.faceit.com/*", "https://*.amazonaws.com/*", "https://*.cloudfront.net/*"] },
+  { urls: ["https://*.faceit.com/*", "https://*.amazonaws.com/*", "https://*.cloudfront.net/*", "https://*.backblazeb2.com/*"] },
 );
 
 async function getCurrentFaceitMatch(): Promise<CurrentFaceitMatch> {
@@ -95,6 +105,14 @@ async function startDownloads(candidates: AnalysisCandidate[], includeProcessed:
   const settings = await getSettings();
   const unique = new Map(candidates.map((candidate) => [candidate.faceitMatchId, candidate]));
   const pending = [...unique.values()].filter((candidate) => includeProcessed || !candidate.processed);
+  if (pending.length > 3 || !pending.length) throw new Error("Choose between one and three demos.");
+  if (settings.downloadMode === "server") {
+    const jobs = await demoJobs(settings.backendUrl, settings.importKey);
+    const active = jobs.filter(j => ["QUEUED", "DOWNLOADING", "PROCESSING"].includes(j.status));
+    if (active.length + pending.filter(c => !active.some(j => j.faceitMatchId === c.faceitMatchId)).length > 3) {
+      throw new Error("The server has only three import slots. Wait for the current demos to finish.");
+    }
+  }
   const statuses = pending.map((candidate): DownloadStatus => ({
     faceitMatchId: candidate.faceitMatchId,
     state: "queued",
@@ -112,6 +130,11 @@ async function startDownloads(candidates: AnalysisCandidate[], includeProcessed:
       return;
     }
 
+    if (settings.downloadMode === "server") {
+      await demoJobs(settings.backendUrl, settings.importKey, [{ faceitMatchId: candidate.faceitMatchId, url: demoUrl }]);
+      await updateStatus(candidate.faceitMatchId, { state: "queued", message: "Accepted by server. Track progress in Imports." });
+      return;
+    }
     await updateStatus(candidate.faceitMatchId, { state: "downloading", message: "Downloading demo." });
     const chromeDownloadId = await extensionApi.downloads.download({
       url: demoUrl,
@@ -130,13 +153,13 @@ async function startDownloads(candidates: AnalysisCandidate[], includeProcessed:
 }
 
 async function retrieveDemoUrl(candidate: AnalysisCandidate) {
-  const captured = capturedDemoUrls.get(candidate.faceitMatchId);
-  if (captured) return captured;
+  // Signed URLs expire; always ask FACEIT for a fresh one for each submission.
+  capturedDemoUrls.delete(candidate.faceitMatchId);
 
   const directUrl = await retrieveDemoUrlFromExistingFaceitTab(candidate.faceitMatchId);
   if (directUrl) return directUrl;
 
-  const tab = await extensionApi.tabs.create({ url: candidate.faceitMatchroomUrl || createFaceitMatchroomUrl(candidate.faceitMatchId), active: false });
+  const tab = await extensionApi.tabs.create({ url: createFaceitMatchroomUrl(candidate.faceitMatchId), active: false });
   if (!tab.id) return null;
   pendingDemoCaptures.set(tab.id, candidate.faceitMatchId);
   await waitForTabComplete(tab.id);
@@ -193,6 +216,23 @@ async function retrieveDemoUrlFromExistingFaceitTab(matchId: string) {
 async function getDownloadStatuses(): Promise<DownloadStatus[]> {
   const stored = await extensionApi.storage.local.get(DOWNLOAD_STATUS_KEY);
   return Array.isArray(stored[DOWNLOAD_STATUS_KEY]) ? stored[DOWNLOAD_STATUS_KEY] : [];
+}
+
+async function refreshServerJobs() {
+  const settings = await getSettings();
+  if (settings.downloadMode !== "server" || !settings.importKey) return;
+  const jobs = await demoJobs(settings.backendUrl, settings.importKey);
+  const seen = new Set<string>();
+  const statuses: DownloadStatus[] = [];
+  for (const job of jobs) {
+    if (seen.has(job.faceitMatchId)) continue;
+    seen.add(job.faceitMatchId);
+    statuses.push({ faceitMatchId: job.faceitMatchId,
+      state: job.status === "COMPLETED" ? "completed" : job.status === "FAILED" ? "failed" : job.status === "PROCESSING" ? "processing" : job.status === "DOWNLOADING" ? "downloading" : "queued",
+      message: job.error || job.importStatus || job.status,
+    });
+  }
+  if (!startingDownloads) await setDownloadStatuses(statuses);
 }
 
 async function setDownloadStatuses(statuses: DownloadStatus[]) {
