@@ -13,7 +13,7 @@ def sqlalchemy_database_url(database_url: str) -> str:
 
 
 def make_session_factory(settings: Settings) -> sessionmaker[Session]:
-    engine = create_engine(sqlalchemy_database_url(str(settings.database_url)), pool_pre_ping=True)
+    engine = create_engine(sqlalchemy_database_url(str(settings.database_url)), pool_pre_ping=True, hide_parameters=True)
     return sessionmaker(engine, expire_on_commit=False)
 
 

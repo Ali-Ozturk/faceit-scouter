@@ -1,4 +1,5 @@
 .env
+benchmark/results/
 node_modules/
 .next/
 dist/

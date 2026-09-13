@@ -4,6 +4,8 @@ const SETTINGS_KEY = "faceitScoutSettings";
 
 export const defaultSettings: ExtensionSettings = {
   backendUrl: "http://localhost:3101",
+  importKey: "",
+  downloadMode: "server",
   faceitPlayerId: "",
   preferredDownloadSubdirectory: "FaceitScout/incoming",
   maxConcurrentDownloads: 2,
@@ -26,5 +28,5 @@ export async function saveSettings(settings: Partial<ExtensionSettings>) {
 }
 
 function clampConcurrency(value: number) {
-  return Math.max(1, Math.min(4, Math.floor(value || defaultSettings.maxConcurrentDownloads)));
+  return Math.max(1, Math.min(3, Math.floor(value || defaultSettings.maxConcurrentDownloads)));
 }

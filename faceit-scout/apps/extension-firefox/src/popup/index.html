@@ -10,14 +10,19 @@
     <main>
       <header>
         <h1>FACEIT Scout</h1>
-        <span id="connection-status">Local backend</span>
+        <span id="connection-status">Local or remote backend</span>
       </header>
 
       <section>
         <label>
-          Backend URL
+          Backend URL (localhost or your HTTPS server)
           <input id="backend-url" type="url" />
         </label>
+        <label>Import access key<input id="import-key" type="password" autocomplete="off" /></label>
+        <label>Download destination
+          <select id="download-mode"><option value="server">Backend downloads and parses (v2)</option><option value="browser">Browser download folder (legacy)</option></select>
+        </label>
+        <button id="save-connection" type="button">Save connection / grant host permission</button>
         <label>
           FACEIT player ID or nickname
           <input id="player-id" autocomplete="off" />
@@ -57,15 +62,15 @@
         <div class="result-heading">
           <h2>Historical matches</h2>
           <div class="compact-actions">
-            <button id="select-all" class="secondary" type="button">Select all</button>
+            <button id="select-all" class="secondary" type="button">Select first 3</button>
             <button id="unselect-all" class="secondary" type="button">Unselect all</button>
-            <button id="download-all" type="button">Download all</button>
+            <button id="download-all" type="button">Import first 3</button>
           </div>
         </div>
         <div id="opponents"></div>
         <div id="candidate-list"></div>
         <div class="actions">
-          <button id="download-selected" type="button">Download selected</button>
+          <button id="download-selected" type="button">Import selected (max 3)</button>
         </div>
       </section>
     </main>
