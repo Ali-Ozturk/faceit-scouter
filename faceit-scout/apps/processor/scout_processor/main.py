@@ -57,7 +57,7 @@ async def run() -> None:
     queued_paths: set[Path] = set()
     parse_executor = ProcessPoolExecutor(max_workers=settings.processor_concurrency)
 
-    await enqueue_existing(settings, queue, queued_paths)
+    await enqueue_existing(settings, queue, imports, queued_paths)
     tasks = [asyncio.create_task(watch_incoming(settings, queue, imports, queued_paths))]
     for index in range(settings.processor_concurrency):
         tasks.append(asyncio.create_task(worker(f"worker-{index + 1}", queue, queued_paths, settings, imports, session_factory, parse_executor)))

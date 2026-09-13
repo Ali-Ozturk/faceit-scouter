@@ -11,6 +11,7 @@ from scout_processor.ingestion.checksum import sha256_file
 from scout_processor.ingestion.file_claiming import claim_file
 from scout_processor.parsing.demo_parser import extract_faceit_match_id
 from scout_processor.watcher.file_stability import is_supported_demo, wait_until_stable
+from scout_processor.watcher.directory_watcher import enqueue_existing
 
 
 def workdir() -> Path:
@@ -74,3 +75,34 @@ async def test_wait_until_stable():
     path = workdir() / "stable.dem"
     path.write_bytes(b"demo")
     assert await wait_until_stable(path, 0.01, 1, 1)
+
+
+class FakeSettings:
+    def __init__(self, incoming_directory: Path) -> None:
+        self.incoming_directory = incoming_directory
+
+
+class FakeImports:
+    def __init__(self) -> None:
+        self.discovered: list[Path] = []
+
+    async def create_discovered(self, path: Path):
+        self.discovered.append(path)
+
+
+@pytest.mark.asyncio
+async def test_enqueue_existing_records_discovered_supported_demos():
+    root = workdir()
+    incoming = root / "incoming"
+    incoming.mkdir()
+    demo = incoming / "sample.dem.zst"
+    ignored = incoming / "sample.dem.zst.crdownload"
+    demo.write_bytes(b"demo")
+    ignored.write_bytes(b"partial")
+    queue: asyncio.Queue[Path] = asyncio.Queue()
+    imports = FakeImports()
+
+    await enqueue_existing(FakeSettings(incoming), queue, imports, set())
+
+    assert imports.discovered == [demo]
+    assert await queue.get() == demo.resolve()

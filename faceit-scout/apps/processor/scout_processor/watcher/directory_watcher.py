@@ -19,9 +19,15 @@ async def enqueue_path(path: Path, queue: asyncio.Queue[Path], queued_paths: set
     await queue.put(resolved)
 
 
-async def enqueue_existing(settings: Settings, queue: asyncio.Queue[Path], queued_paths: set[Path]) -> None:
+async def enqueue_existing(
+    settings: Settings,
+    queue: asyncio.Queue[Path],
+    imports: ImportRepository,
+    queued_paths: set[Path],
+) -> None:
     for path in sorted(settings.incoming_directory.iterdir()):
         if path.is_file() and is_supported_demo(path):
+            await imports.create_discovered(path)
             await enqueue_path(path, queue, queued_paths)
 
 
