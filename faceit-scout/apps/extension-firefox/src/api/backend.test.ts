@@ -1,7 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { createAnalysisRequest, mapAnalysisResponse, normalizeBackendUrl } from "./backend";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createAnalysisRequest, demoJobs, mapAnalysisResponse, normalizeBackendUrl } from "./backend";
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("backend API helpers", () => {
+  it("explains an old backend's HTML response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<!DOCTYPE html><html>Not found</html>", { status: 404 })));
+    await expect(demoJobs("http://localhost:3101", "test-key-long-enough-for-imports")).rejects.toThrow("docker compose up -d --build");
+  });
+
   it("normalizes backend URLs", () => {
     expect(normalizeBackendUrl("http://localhost:3000///")).toBe("http://localhost:3000");
     expect(normalizeBackendUrl(" ")).toBe("http://localhost:3101");

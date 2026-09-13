@@ -21,8 +21,11 @@ export async function demoJobs(backendUrl: string, key: string, demos?: Array<{ 
     redirect: "error",
     signal: AbortSignal.timeout(15000),
   });
-  const body = await response.json();
+  const body = await response.json().catch(() => {
+    throw new Error(`The backend returned a page instead of the v2 import API (HTTP ${response.status}). Check the Backend URL and run docker compose up -d --build in the project folder.`);
+  });
   if (!response.ok) throw new Error(body.error || `Import request failed (${response.status}).`);
+  if (!body || !Array.isArray(body.jobs)) throw new Error("Unexpected import API response. Update the backend to v2.");
   return body.jobs;
 }
 
