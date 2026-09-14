@@ -19,14 +19,13 @@ Browser extensions are available for demo discovery/download:
 
 ### Publishing extension releases
 
-Pushing a numeric extension tag such as `v0.2.0` runs `.github/workflows/release-extensions.yml`. The workflow tests and builds both extensions, sets both manifest versions from the tag, creates Chrome and Firefox ZIP files with `manifest.json` at each archive root, generates `SHA256SUMS.txt`, and attaches all three files to the matching GitHub Release. Tags must contain one to four numeric components after `v` because browser extension manifest versions are numeric.
+Every push to **main** runs `.github/workflows/release-extensions.yml`. After successful tests and builds it creates the next numeric patch tag (for example `v0.2.0` → `v0.2.1`) and a GitHub Release containing Chrome and Firefox ZIPs plus `SHA256SUMS.txt`. Each ZIP has `manifest.json` at its root. Failed builds publish nothing. An empty tag history starts at `v0.1.1`.
 
-```powershell
-git tag v0.2.0
-git push origin v0.2.0
-```
+Runs are serialized with GitHub's `queue: max` (up to 100 waiting runs), so rapid pushes do not replace pending releases. A rerun reuses a version already attached to that commit. The workflow uses the repository's built-in `GITHUB_TOKEN` with `contents: write`; repository rules must allow it to create release tags.
 
-The workflow can also be run manually from GitHub Actions with an existing tag. A manual rerun replaces existing extension assets with the newly built files.
+You can still run the workflow manually with an **existing tag** to rebuild its assets. To publish these changes, merge them into main; rerunning an older tag rebuilds the old source. The workflow also signs a Firefox XPI through Mozilla's unlisted channel and publishes an update feed. Signing needs the `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` repository secrets. Existing signed release assets are reused on reruns. See the guide below for the pending Firefox data declaration and update-feed details.
+
+See [UI update and verification guide](docs/ui-update.md) for updating the running app and extensions.
 
 ## Requirements
 

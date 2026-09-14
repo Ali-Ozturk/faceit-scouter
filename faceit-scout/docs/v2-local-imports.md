@@ -20,7 +20,7 @@ The extension obtains a fresh signed demo URL using your logged-in FACEIT browse
    docker compose logs --tail 40 web processor
    ```
 
-   The web container applies the added `demo_download` table automatically. Existing parsed match results remain in PostgreSQL. Successful retained demo files in the configured completed folder are also deleted by the retention sweep. Source copies outside Scout's managed directories are unaffected. If you want to retain originals for debugging, set `KEEP_COMPLETED_DEMOS=true` before starting.
+   The web container applies the `demo_download` table and its display metadata columns automatically. Existing parsed match results remain in PostgreSQL. Successful retained demo files in the configured completed folder are also deleted by the retention sweep. Source copies outside Scout's managed directories are unaffected. If you want to retain originals for debugging, set `KEEP_COMPLETED_DEMOS=true` before starting.
 
 4. Build the extension:
 
@@ -31,21 +31,20 @@ The extension obtains a fresh signed demo URL using your logged-in FACEIT browse
 
    In Chrome/Edge's extensions page, enable Developer mode and load unpacked `apps/extension/dist`, or reload the existing extension. Reload your FACEIT tabs too. Firefox users run the equivalent commands under `apps/extension-firefox`, then load `dist/manifest.json` through `about:debugging` → This Firefox → Load Temporary Add-on.
 
-5. In the extension set:
+5. In the extension open **Settings** and set:
    - **Backend URL:** `http://localhost:3101` (or your configured web port).
    - **Import access key:** the `SCOUT_IMPORT_KEY` value from `.env`.
-   - **Download destination:** Backend downloads and parses (v2).
    - Your FACEIT player ID or nickname.
 
-   Click **Save connection / grant host permission**. There is no symlink requirement in v2. The legacy browser-download mode still uses your existing download directory/symlink setup.
+   Click **Save connection** and allow access to your backend. Entered details survive a popup closing during the permission prompt. All extension imports now go to the backend; there is no download destination, subdirectory, or symlink to configure.
 
-6. Open a FACEIT match while logged in, click Analyze, select up to three demos, and click Import selected. Open `http://localhost:3101/imports` to watch live progress: QUEUED → DOWNLOADING → PROCESSING → COMPLETED (or FAILED with a reason). The extension also refreshes server states periodically.
+6. Open a FACEIT match while logged in, wait for the selected map to appear, then click **Analyze**. The newest three unprocessed demos are selected automatically; adjust the checkboxes if needed and click the always-visible **Import selected** button. Open `http://localhost:3101/imports` to watch live progress: QUEUED → DOWNLOADING → PROCESSING → COMPLETED (or FAILED with a reason). The extension also refreshes server states periodically.
 
 7. Open the parsed match in Scout. Successful compressed and decompressed files are removed; database results and import timings remain. A failed parse keeps its original under `data/failed` for investigation. Download failures remove partial files. Failed jobs release their slot; retrying from the extension obtains a fresh URL.
 
 ## Limits and storage
 
-- Three active URL imports **across the entire backend**, including queued, downloading, and parsing jobs. There are no per-user accounts yet. Duplicate submissions for an active match reuse its job. The server enforces admission inside a database transaction, so simultaneous submissions cannot exceed three.
+- Nine outstanding URL imports **across the entire backend**, including queued, downloading, and parsing jobs. Each submission contains at most three demos; at most three run simultaneously in one production processor. There are no per-user accounts yet. Duplicate submissions for an active match reuse its job. The server enforces admission inside a database transaction, so simultaneous submissions cannot exceed nine outstanding jobs.
 - `PROCESSOR_CONCURRENCY` controls active work separately; the default remains three locally. Two is the sensible starting value for the tested VPS. Legacy manually placed files share worker capacity but are not counted in the URL admission limit.
 - Download and processing paths share a Docker named volume (`downloads_data`); decompression uses `decompressed_data`. Windows host copies are avoided for the new download-to-processing handoff.
 - Downloads are capped at 2 GB, decompressed files at 4 GiB, with a 600-second download deadline and 20-second socket timeout. Only HTTP 200 is accepted; redirects are rejected.

@@ -7,6 +7,41 @@ from scout_processor import main
 
 
 @pytest.mark.asyncio
+async def test_url_imports_share_three_execution_slots_even_with_larger_setting(monkeypatch):
+    settings = SimpleNamespace(processor_concurrency=9, log_level='INFO', url_imports_enabled=True,
+                               incoming_directory='/unused', ensure_directories=lambda: None)
+    workers = []
+    async def idle(*args):
+        await asyncio.Event().wait()
+    async def record_worker(*args):
+        workers.append(args[-1])
+        await idle()
+    monkeypatch.setattr(main, 'Settings', lambda: settings)
+    monkeypatch.setattr(main, 'make_session_factory', lambda _: None)
+    monkeypatch.setattr(main, 'ImportRepository', lambda _: None)
+    executor_sizes = []
+    monkeypatch.setattr(main, 'ProcessPoolExecutor', lambda **kwargs: executor_sizes.append(kwargs['max_workers']))
+    for name in ['cleanup_loop', 'enqueue_existing', 'watch_incoming']:
+        monkeypatch.setattr(main, name, idle)
+    monkeypatch.setattr(main, 'worker', record_worker)
+    monkeypatch.setattr(main, 'download_worker', record_worker)
+    task = asyncio.create_task(main.run())
+    try:
+        for _ in range(3):
+            await asyncio.sleep(0)
+        assert executor_sizes == [3]
+        assert len(workers) == 6  # Three folder watchers and three URL workers share one semaphore.
+        assert all(slot is workers[0] for slot in workers)
+        for _ in range(3):
+            await workers[0].acquire()
+        assert workers[0].locked()
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
 async def test_startup_drains_more_files_than_queue_capacity(monkeypatch):
     settings = SimpleNamespace(processor_concurrency=1, log_level='INFO', keep_completed_demos=True, url_imports_enabled=False,
                                incoming_directory='/unused', ensure_directories=lambda: None)

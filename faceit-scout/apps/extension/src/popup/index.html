@@ -1,79 +1,31 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>FACEIT Scout</title>
-    <link rel="stylesheet" href="./popup.css" />
-  </head>
-  <body>
-    <main>
-      <header>
-        <h1>FACEIT Scout</h1>
-        <span id="connection-status">Local or remote backend</span>
-      </header>
-
-      <section>
-        <label>
-          Backend URL (localhost or your HTTPS server)
-          <input id="backend-url" type="url" />
-        </label>
-        <label>Import access key<input id="import-key" type="password" autocomplete="off" /></label>
-        <label>Download destination
-          <select id="download-mode"><option value="server">Backend downloads and parses (v2)</option><option value="browser">Browser download folder (legacy)</option></select>
-        </label>
-        <button id="save-connection" type="button">Save connection / grant host permission</button>
-        <label>
-          FACEIT player ID or nickname
-          <input id="player-id" autocomplete="off" />
-        </label>
-        <label>
-          Download subdirectory
-          <input id="download-subdirectory" />
-        </label>
-      </section>
-
-      <section>
-        <label>
-          Current match ID
-          <input id="match-id" autocomplete="off" />
-        </label>
-        <label>
-          Map
-          <input id="selected-map" placeholder="de_inferno" />
-        </label>
-        <div class="actions">
-          <button id="detect-match" type="button">Detect</button>
-          <button id="start-analysis" type="button">Analyze</button>
-        </div>
-      </section>
-
-      <p id="message" role="status"></p>
-
-      <section id="fallback-analysis" class="fallback" hidden>
-        <div>
-          <h2>No 4-stack history found</h2>
-          <p>Try a broader search using 3 shared opponents instead.</p>
-        </div>
-        <button id="fallback-analysis-button" class="secondary" type="button">Analyze using 3 premade</button>
-      </section>
-
-      <section id="results" hidden>
-        <div class="result-heading">
-          <h2>Historical matches</h2>
-          <div class="compact-actions">
-            <button id="select-all" class="secondary" type="button">Select first 3</button>
-            <button id="unselect-all" class="secondary" type="button">Unselect all</button>
-            <button id="download-all" type="button">Import first 3</button>
-          </div>
-        </div>
-        <div id="opponents"></div>
-        <div id="candidate-list"></div>
-        <div class="actions">
-          <button id="download-selected" type="button">Import selected (max 3)</button>
-        </div>
-      </section>
-    </main>
-    <script type="module" src="./popup.js"></script>
-  </body>
-</html>
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>FACEIT Scout</title><link rel="stylesheet" href="./popup.css"/></head>
+<body>
+<main>
+  <header><div><h1>FACEIT <span>SCOUT</span></h1><small id="connection-status">Your match companion</small></div><button id="settings-toggle" class="secondary" aria-expanded="false" aria-controls="settings">Settings</button></header>
+  <section id="settings" role="dialog" aria-label="Connection settings" aria-modal="true" hidden>
+    <div class="section-heading"><h2>Connection</h2><button id="settings-close" class="quiet">Close</button></div>
+    <p class="muted">Use localhost for your PC, or your HTTPS server for remote imports.</p>
+    <label>Backend URL<input id="backend-url" type="url" placeholder="https://faceit.example.com" spellcheck="false"/></label>
+    <label>Import access key<input id="import-key" type="password" autocomplete="off"/></label>
+    <label>Your FACEIT nickname or player ID<input id="player-id" autocomplete="off" spellcheck="false"/></label>
+    <button id="save-connection">Save connection</button>
+    <div id="settings-message" class="notice" role="status" hidden></div>
+    <p class="muted">Your backend downloads and parses demos. FACEIT cookies stay in your browser.</p>
+  </section>
+  <section class="match-card">
+    <div><small>CURRENT MATCH</small><h2 id="match-summary">Open a FACEIT matchroom</h2><p class="muted" id="match-hint">The selected map appears automatically.</p></div>
+    <button id="start-analysis" disabled>Analyze</button>
+  </section>
+  <div id="message" class="notice" role="status" aria-live="polite">Open a matchroom to get started.</div>
+  <section id="fallback-analysis" class="fallback" hidden><div><h2>No 4-player history found</h2><p>Try matches with 3 of these players.</p></div><button id="fallback-analysis-button" class="secondary">Try 3 players</button></section>
+  <section id="results">
+    <div class="section-heading"><h2>Historical matches <span id="result-count"></span></h2><button id="unselect-all" class="quiet" disabled>Unselect all</button></div>
+    <div id="opponents" aria-label="Opponents"></div>
+    <div id="candidate-list"><p class="empty">Analyze your opponents to find their recent matches on this map.</p></div>
+  </section>
+  <footer><div><strong id="selection-count">0 of 3 selected</strong><small>Newest unprocessed demos selected first</small></div><button id="download-selected" disabled>Import selected</button></footer>
+</main>
+<script type="module" src="./popup.js"></script>
+</body></html>

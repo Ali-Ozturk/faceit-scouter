@@ -65,3 +65,7 @@ a {
     box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.18);
   }
 }
+
+@keyframes map-loading { from { transform: translateX(-100%); } to { transform: translateX(400%); } }
+.map-loading-bar { animation: map-loading 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .map-loading-bar { animation: none; width: 100%; } }

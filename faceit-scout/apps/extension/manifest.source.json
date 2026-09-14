@@ -25,11 +25,9 @@
   ],
   "permissions": [
     "activeTab",
-    "downloads",
     "scripting",
     "storage",
     "tabs",
-    "webRequest",
     "alarms"
   ],
   "host_permissions": [

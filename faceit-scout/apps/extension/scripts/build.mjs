@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { copyFile, cp, mkdir, rm } from "node:fs/promises";
 import { build, context } from "esbuild";
 import { spawn } from "node:child_process";
@@ -20,7 +21,7 @@ async function copyStatic() {
   await copyFile(path.join(root, "manifest.source.json"), path.join(dist, "manifest.json"));
   await cp(path.join(root, "src", "popup", "index.html"), path.join(dist, "popup", "index.html"), { recursive: true });
   await cp(path.join(root, "src", "popup", "popup.css"), path.join(dist, "popup", "popup.css"), { recursive: true });
-  await cp(path.join(root, "public"), dist, { recursive: true });
+  if (existsSync(path.join(root, "public"))) await cp(path.join(root, "public"), dist, { recursive: true });
 }
 
 await rm(dist, { recursive: true, force: true });

@@ -56,15 +56,17 @@ async def test_admission_parse_recovery_and_retention(monkeypatch):
             return error.code, json.load(error)
 
     host = settings.demo_download_hosts.split(',')[0]
-    payloads = [[{'faceitMatchId': '1-' + str(uuid.uuid4()), 'url': f'https://{host}/a.dem.zst?signature=private-test-value'}] for _ in range(4)]
+    payloads = [[{'faceitMatchId': '1-' + str(uuid.uuid4()), 'url': f'https://{host}/a.dem.zst?signature=private-test-value',
+                  'requesterNickname': 'integration-player', 'matchPlayedAt': '2026-09-14T10:00:00Z', 'mapName': 'de_inferno'}] for _ in range(10)]
     assert request(key='wrong')[0] == 401
-    with ThreadPoolExecutor(4) as pool:
+    with ThreadPoolExecutor(10) as pool:
         responses = list(pool.map(request, payloads))
-    assert sorted(status for status, _ in responses) == [202, 202, 202, 409]
+    assert sorted(status for status, _ in responses) == [202] * 9 + [409]
     accepted = [payload for payload, response in zip(payloads, responses) if response[0] == 202]
     first_id = request(accepted[0])[1]['jobs'][0]['id']
     assert request(accepted[0])[1]['jobs'][0]['id'] == first_id
     assert 'private-test-value' not in json.dumps(request()[1])
+    assert all(job['requesterNickname'] == 'integration-player' and job['matchPlayedAt'] for job in request()[1]['jobs'])
 
     class Response:
         status = 200

@@ -1,14 +1,12 @@
-import { createAnalysis, demoJobs } from "../api/backend.js";
-import { createDemoFilename } from "../downloads/filename.js";
+import { guardedAnalysis } from "../api/analysis-gate.js";
+import { demoJobs } from "../api/backend.js";
 import { runBoundedQueue } from "../downloads/queue.js";
 import { createFaceitMatchroomUrl, extractFaceitMatchId } from "../faceit/match-url.js";
 import { isExtensionMessage } from "../shared/messages.js";
 import type { AnalysisCandidate, CurrentFaceitMatch, DownloadStatus } from "../shared/types.js";
-import { DOWNLOAD_STATUS_KEY } from "../storage/popup-state.js";
+import { DOWNLOAD_STATUS_KEY, getPopupState, savePopupState } from "../storage/popup-state.js";
 import { getSettings, saveSettings } from "../storage/settings.js";
 
-const capturedDemoUrls = new Map<string, string>();
-const pendingDemoCaptures = new Map<number, string>();
 let startingDownloads = false;
 
 chrome.alarms.create("refresh-imports", { periodInMinutes: 0.5 });
@@ -24,18 +22,32 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === "SAVE_SETTINGS") {
-    saveSettings(message.settings).then(sendResponse);
+    saveSettings(message.settings).then(sendResponse).catch(error => sendResponse({ error: errorMessage(error) }));
     return true;
   }
 
   if (message.type === "GET_CURRENT_FACEIT_MATCH") {
-    getCurrentFaceitMatch().then(sendResponse);
+    getCurrentFaceitMatch().then(sendResponse).catch(error => sendResponse({ error: errorMessage(error) }));
     return true;
   }
 
   if (message.type === "CREATE_ANALYSIS") {
     getSettings()
-      .then((settings) => createAnalysis(settings.backendUrl, message.input))
+      .then(async settings => {
+        const result = await guardedAnalysis(settings.backendUrl, message.input);
+        const contextKey = JSON.stringify([settings.backendUrl, settings.faceitPlayerId]);
+        const saved = await getPopupState({ contextKey, matchId: message.input.faceitMatchId });
+        if (saved.analysis?.analysisId !== result.analysisId) {
+          await savePopupState({ contextKey, matchId: message.input.faceitMatchId,
+            selectedMap: message.input.selectedMap ?? "", analysis: result,
+            analysisMinimumSharedPlayers: message.input.minimumSharedPlayers ?? 4,
+            selectedCandidateIds: [...result.candidates].sort((a, b) => (Date.parse(b.playedAt ?? "") || 0) - (Date.parse(a.playedAt ?? "") || 0)).filter(c => !c.processed).slice(0, 3).map(c => c.faceitMatchId),
+            message: result.candidates.length ? `Found ${result.candidates.length} historical matches.` : "Analysis complete. No matching history found.",
+            messageKind: "success",
+          });
+        }
+        return result;
+      })
       .then(sendResponse)
       .catch((error) => sendResponse({ error: errorMessage(error) }));
     return true;
@@ -44,7 +56,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "START_DOWNLOADS") {
     if (startingDownloads) { sendResponse({ error: "A submission is already in progress." }); return false; }
     startingDownloads = true;
-    startDownloads(message.candidates, message.includeProcessed)
+    startDownloads(message.candidates, message.includeProcessed, message.requesterNickname, message.analysisId)
       .then(sendResponse)
       .catch(error => sendResponse({ error: errorMessage(error) }))
       .finally(() => { startingDownloads = false; });
@@ -60,32 +72,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
-chrome.downloads.onChanged.addListener(async (delta) => {
-  if (!delta.state) return;
-  const statuses = await getDownloadStatuses();
-  const status = statuses.find((item) => item.chromeDownloadId === delta.id);
-  if (!status) return;
-  if (delta.state.current === "complete") status.state = "completed";
-  if (delta.state.current === "interrupted") {
-    status.state = "failed";
-    status.message = "Chrome interrupted the download.";
-  }
-  await setDownloadStatuses(statuses);
-});
-
-chrome.webRequest?.onCompleted?.addListener?.(
-  (details) => {
-    if (!isLikelyDemoUrl(details.url)) return;
-    if (details.tabId >= 0) {
-      const pendingMatchId = pendingDemoCaptures.get(details.tabId);
-      if (pendingMatchId) capturedDemoUrls.set(pendingMatchId, details.url);
-    }
-    const matchId = extractMatchIdFromDemoUrl(details.url);
-    if (matchId) capturedDemoUrls.set(matchId, details.url);
-  },
-  { urls: ["https://*.faceit.com/*", "https://*.amazonaws.com/*", "https://*.cloudfront.net/*", "https://*.backblazeb2.com/*"] },
-);
-
 async function getCurrentFaceitMatch(): Promise<CurrentFaceitMatch> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const url = tab?.url ?? "";
@@ -100,16 +86,16 @@ async function getCurrentFaceitMatch(): Promise<CurrentFaceitMatch> {
   }
 }
 
-async function startDownloads(candidates: AnalysisCandidate[], includeProcessed: boolean) {
+async function startDownloads(candidates: AnalysisCandidate[], includeProcessed: boolean, requesterNickname?: string, analysisId?: string) {
   const settings = await getSettings();
   const unique = new Map(candidates.map((candidate) => [candidate.faceitMatchId, candidate]));
   const pending = [...unique.values()].filter((candidate) => includeProcessed || !candidate.processed);
   if (pending.length > 3 || !pending.length) throw new Error("Choose between one and three demos.");
-  if (settings.downloadMode === "server") {
+  {
     const jobs = await demoJobs(settings.backendUrl, settings.importKey);
     const active = jobs.filter(j => ["QUEUED", "DOWNLOADING", "PROCESSING"].includes(j.status));
-    if (active.length + pending.filter(c => !active.some(j => j.faceitMatchId === c.faceitMatchId)).length > 3) {
-      throw new Error("The server has only three import slots. Wait for the current demos to finish.");
+    if (active.length + pending.filter(c => !active.some(j => j.faceitMatchId === c.faceitMatchId)).length > 9) {
+      throw new Error("The server queue is full (9 demos queued or processing). Wait for a demo to finish.");
     }
   }
   const statuses = pending.map((candidate): DownloadStatus => ({
@@ -124,24 +110,18 @@ async function startDownloads(candidates: AnalysisCandidate[], includeProcessed:
     if (!demoUrl) {
       await updateStatus(candidate.faceitMatchId, {
         state: "waiting_for_user",
-        message: "Automatic demo URL capture failed. Use the opened matchroom fallback.",
+        message: "FACEIT did not provide a demo URL. Check that you are signed in and the demo is available, then retry.",
       });
       return;
     }
 
-    if (settings.downloadMode === "server") {
-      await demoJobs(settings.backendUrl, settings.importKey, [{ faceitMatchId: candidate.faceitMatchId, url: demoUrl }]);
-      await updateStatus(candidate.faceitMatchId, { state: "queued", message: "Accepted by server. Track progress in Imports." });
-      return;
-    }
-    await updateStatus(candidate.faceitMatchId, { state: "downloading", message: "Downloading demo." });
-    const chromeDownloadId = await chrome.downloads.download({
-      url: demoUrl,
-      filename: createDemoFilename(candidate.faceitMatchId, settings.preferredDownloadSubdirectory),
-      saveAs: false,
-      conflictAction: "uniquify",
-    });
-    await updateStatus(candidate.faceitMatchId, { state: "downloading", chromeDownloadId });
+    await demoJobs(settings.backendUrl, settings.importKey, [{
+      faceitMatchId: candidate.faceitMatchId, url: demoUrl,
+      requesterNickname: requesterNickname || settings.faceitPlayerId,
+      ...(analysisId ? { analysisId } : {}),
+      matchPlayedAt: candidate.playedAt, mapName: candidate.map,
+    }]);
+    await updateStatus(candidate.faceitMatchId, { state: "queued", message: "Accepted by server. Track progress in Imports." });
   }, async ({ item, error }) => {
     if (error) {
       await updateStatus(item.faceitMatchId, { state: "failed", message: error.message });
@@ -152,42 +132,17 @@ async function startDownloads(candidates: AnalysisCandidate[], includeProcessed:
 }
 
 async function retrieveDemoUrl(candidate: AnalysisCandidate) {
-  // Signed URLs expire; always ask FACEIT for a fresh one for each submission.
-  capturedDemoUrls.delete(candidate.faceitMatchId);
-
+  // Request a fresh URL using FACEIT cookies in the tab. Never start a browser download.
   const directUrl = await retrieveDemoUrlFromExistingFaceitTab(candidate.faceitMatchId);
   if (directUrl) return directUrl;
-
   const tab = await chrome.tabs.create({ url: createFaceitMatchroomUrl(candidate.faceitMatchId), active: false });
   if (!tab.id) return null;
-  pendingDemoCaptures.set(tab.id, candidate.faceitMatchId);
-  await waitForTabComplete(tab.id);
-
   try {
-    const response = await chrome.tabs.sendMessage(tab.id, { type: "TRIGGER_FACEIT_DEMO", matchId: candidate.faceitMatchId });
-    if (response?.demoUrl) {
-      await closeTab(tab.id);
-      return response.demoUrl as string;
-    }
-    const capturedAfterClick = await waitForCapturedDemoUrl(candidate.faceitMatchId, 12_000);
-    if (capturedAfterClick) {
-      await closeTab(tab.id);
-      return capturedAfterClick;
-    }
-    await updateStatus(candidate.faceitMatchId, { state: "waiting_for_user", message: response?.error ?? "Manual download required." });
-    await chrome.tabs.update(tab.id, { active: true });
-    return null;
-  } catch {
-    const capturedAfterError = await waitForCapturedDemoUrl(candidate.faceitMatchId, 12_000);
-    if (capturedAfterError) {
-      await closeTab(tab.id);
-      return capturedAfterError;
-    }
-    await chrome.tabs.update(tab.id, { active: true });
-    return null;
-  } finally {
-    pendingDemoCaptures.delete(tab.id);
-  }
+    await waitForTabComplete(tab.id);
+    const response = await chrome.tabs.sendMessage(tab.id, { type: "GET_FACEIT_DEMO_URL", matchId: candidate.faceitMatchId });
+    if (response?.error) throw new Error(response.error);
+    return typeof response?.demoUrl === "string" ? response.demoUrl : null;
+  } finally { await closeTab(tab.id); }
 }
 
 async function closeTab(tabId: number) {
@@ -219,7 +174,7 @@ async function getDownloadStatuses(): Promise<DownloadStatus[]> {
 
 async function refreshServerJobs() {
   const settings = await getSettings();
-  if (settings.downloadMode !== "server" || !settings.importKey) return;
+  if (!settings.importKey) return;
   const jobs = await demoJobs(settings.backendUrl, settings.importKey);
   const seen = new Set<string>();
   const statuses: DownloadStatus[] = [];
@@ -239,7 +194,12 @@ async function setDownloadStatuses(statuses: DownloadStatus[]) {
   chrome.runtime.sendMessage({ type: "DOWNLOAD_PROGRESS", payload: statuses }).catch(() => undefined);
 }
 
-async function updateStatus(matchId: string, patch: Partial<DownloadStatus>) {
+let statusWrites = Promise.resolve();
+function updateStatus(matchId: string, patch: Partial<DownloadStatus>) {
+  statusWrites = statusWrites.catch(() => undefined).then(() => applyStatus(matchId, patch));
+  return statusWrites;
+}
+async function applyStatus(matchId: string, patch: Partial<DownloadStatus>) {
   const statuses = await getDownloadStatuses();
   const index = statuses.findIndex((status) => status.faceitMatchId === matchId);
   if (index === -1) statuses.push({ faceitMatchId: matchId, state: "queued", ...patch });
@@ -261,30 +221,6 @@ function waitForTabComplete(tabId: number) {
     };
     chrome.tabs.onUpdated.addListener(listener);
   });
-}
-
-async function waitForCapturedDemoUrl(matchId: string, timeoutMs: number) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    const captured = capturedDemoUrls.get(matchId);
-    if (captured) return captured;
-    await wait(500);
-  }
-  return null;
-}
-
-function isLikelyDemoUrl(url: string) {
-  const lower = url.toLowerCase();
-  return lower.includes(".dem") || lower.includes(".dem.zst") || (lower.includes("demo") && (lower.includes("s3") || lower.includes("cloudfront")));
-}
-
-function extractMatchIdFromDemoUrl(url: string) {
-  const decoded = decodeURIComponent(url);
-  return decoded.match(/(?:^|[/_-])([0-9a-f]{8}-[0-9a-f-]{27,}|1-[a-z0-9-]{8,})(?:[/_.-]|$)/i)?.[1] ?? null;
-}
-
-function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function errorMessage(error: unknown) {

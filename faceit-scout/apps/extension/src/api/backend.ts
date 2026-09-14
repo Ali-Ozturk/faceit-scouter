@@ -12,7 +12,7 @@ export function normalizeBackendUrl(value: string) {
 
 export type ServerJob = { id: string; faceitMatchId: string; status: string; importStatus?: string; error?: string };
 
-export async function demoJobs(backendUrl: string, key: string, demos?: Array<{ faceitMatchId: string; url: string }>): Promise<ServerJob[]> {
+export async function demoJobs(backendUrl: string, key: string, demos?: Array<{ faceitMatchId: string; url: string; requesterNickname?: string; analysisId?: string; matchPlayedAt?: string | null; mapName?: string | null }>): Promise<ServerJob[]> {
   if (key.trim().length < 24) throw new Error("Set the import access key from your backend .env (at least 24 characters).");
   const response = await fetch(`${normalizeBackendUrl(backendUrl)}/api/demo-downloads`, {
     method: demos ? "POST" : "GET",
@@ -43,6 +43,7 @@ export async function createAnalysis(backendUrl: string, input: BackendAnalysisI
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(createAnalysisRequest(input)),
+    signal: AbortSignal.timeout(120000),
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -57,6 +58,7 @@ export function mapAnalysisResponse(value: unknown): AnalysisResponse {
   const opponents = Array.isArray(record.opponents) ? record.opponents : [];
   return {
     analysisId: stringValue(record.analysisId) ?? "",
+    requesterNickname: stringValue(record.requesterNickname) ?? undefined,
     minimumSharedPlayers: numberValue(record.minimumSharedPlayers) ?? undefined,
     opponents: opponents.flatMap((item) => {
       const opponent = item && typeof item === "object" ? item as Record<string, unknown> : {};

@@ -5,9 +5,7 @@ const SETTINGS_KEY = "faceitScoutSettings";
 export const defaultSettings: ExtensionSettings = {
   backendUrl: "http://localhost:3101",
   importKey: "",
-  downloadMode: "server",
   faceitPlayerId: "",
-  preferredDownloadSubdirectory: "FaceitScout/incoming",
   maxConcurrentDownloads: 2,
 };
 

@@ -7,7 +7,7 @@ export type ExtensionMessage =
   | { type: "CURRENT_FACEIT_MATCH"; payload: CurrentFaceitMatch }
   | { type: "CREATE_ANALYSIS"; input: BackendAnalysisInput }
   | { type: "ANALYSIS_CREATED"; payload: AnalysisResponse }
-  | { type: "START_DOWNLOADS"; candidates: AnalysisCandidate[]; includeProcessed: boolean }
+  | { type: "START_DOWNLOADS"; candidates: AnalysisCandidate[]; includeProcessed: boolean; requesterNickname?: string; analysisId?: string }
   | { type: "DOWNLOAD_PROGRESS"; payload: DownloadStatus[] }
   | { type: "GET_FACEIT_DEMO_URL"; matchId: string }
   | { type: "TRIGGER_FACEIT_DEMO"; matchId: string }

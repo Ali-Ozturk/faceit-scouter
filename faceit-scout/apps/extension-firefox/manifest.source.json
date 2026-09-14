@@ -26,11 +26,9 @@
   ],
   "permissions": [
     "activeTab",
-    "downloads",
     "scripting",
     "storage",
     "tabs",
-    "webRequest",
     "alarms"
   ],
   "host_permissions": [
@@ -44,8 +42,12 @@
   ],
   "browser_specific_settings": {
     "gecko": {
-      "id": "faceit-scout-firefox@local",
-      "strict_min_version": "121.0"
+      "id": "faceit-scout-firefox@alihan",
+      "strict_min_version": "121.0",
+      "update_url": "https://raw.githubusercontent.com/Ali-Ozturk/faceit-scouter/refs/heads/main/faceit-scout/apps/extension-firefox/updates.json",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
     }
   },
   "optional_permissions": [

@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     };
     const result = await discoverFaceitMatches(faceitClient, input, { minimumSharedPlayers: input.minimumSharedPlayers });
     const stored = await createAnalysis(input, result);
-    return NextResponse.json(stored, { status: 201 });
+    return NextResponse.json({ ...stored, requesterNickname: result.requesterNickname }, { status: 201 });
   } catch (error) {
     const status = error instanceof FaceitHttpError ? faceitStatusToHttpStatus(error.status) : 500;
     return NextResponse.json({ error: error instanceof Error ? error.message : "Analysis failed." }, { status });

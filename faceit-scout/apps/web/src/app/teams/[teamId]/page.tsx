@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { MapLink } from "@/components/map-link";
 import { notFound } from "next/navigation";
 import { getTeam } from "@/db/queries/teams";
 import { formatDate } from "@/lib/format";
@@ -21,21 +21,26 @@ export default async function TeamPage({ params }: { params: Promise<{ teamId: s
       </div>
       <section>
         <h2 className="mb-3 text-xl font-semibold">Maps</h2>
-        <div className="flex flex-wrap gap-2">
+        <p className="mb-4 text-sm text-slate-600">Choose a map to explore this team's analyzed matches and tendencies.</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7">
           {[...maps.entries()].map(([mapName, count]) => (
-            <Link key={mapName} href={`/teams/${teamId}/maps/${encodeURIComponent(mapName)}`} className="rounded border bg-white px-3 py-2 text-sm">{mapName} · {count}</Link>
+            <MapLink
+              key={mapName}
+              href={`/teams/${teamId}/maps/${encodeURIComponent(mapName)}`}
+              mapName={mapName}
+              count={count}
+            />
           ))}
         </div>
       </section>
       <section>
-        <h2 className="mb-3 text-xl font-semibold">Matches</h2>
+        <h2 className="mb-3 text-xl font-semibold">Matches analyzed</h2>
         <Table>
-          <thead><tr><Th>Map</Th><Th>Date</Th><Th>Score</Th><Th>Rounds</Th><Th></Th></tr></thead>
+          <thead><tr><Th>Map</Th><Th>Date</Th><Th>Score</Th><Th>Rounds</Th></tr></thead>
           <tbody>
             {team.matches.map((match) => (
               <tr key={match.matchId}>
                 <Td>{match.mapName}</Td><Td>{formatDate(match.playedAt)}</Td><Td>{match.team1Score ?? "-"} : {match.team2Score ?? "-"}</Td><Td>{match.roundCount}</Td>
-                <Td><Link className="text-blue-700" href={`/matches/${match.matchId}`}>Open</Link></Td>
               </tr>
             ))}
           </tbody>

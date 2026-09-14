@@ -6,8 +6,8 @@ import { ImportStageLogs, ImportStageSummary } from "@/components/import-stage-l
 import { StatusBadge } from "@/components/status-badge";
 import { Table, Th } from "@/components/table";
 import { db } from "@/db";
-import { demoDownload } from "@/db/schema";
-import { desc } from "drizzle-orm";
+import { demoDownload, importedDemo, csMatch, faceitAnalysisCandidate } from "@/db/schema";
+import { desc, eq, sql } from "drizzle-orm";
 import { DownloadQueue } from "@/components/download-queue";
 
 export const dynamic = "force-dynamic";
@@ -17,8 +17,16 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
   const params = await searchParams;
   const status = params.status && isImportStatus(params.status) ? params.status : undefined;
   const rows = await getImports(status);
-  const jobs = await db.select({ id: demoDownload.id, faceitMatchId: demoDownload.faceitMatchId,
-    status: demoDownload.status, error: demoDownload.error }).from(demoDownload).orderBy(desc(demoDownload.createdAt)).limit(10);
+  const jobs = await db.select({ id: demoDownload.id,
+    status: demoDownload.status, error: demoDownload.error,
+    createdAt: demoDownload.createdAt,
+    matchPlayedAt: sql<string | null>`coalesce(${demoDownload.matchPlayedAt}, ${csMatch.playedAt}, (select ${faceitAnalysisCandidate.playedAt} from ${faceitAnalysisCandidate} where ${faceitAnalysisCandidate.faceitMatchId} = ${demoDownload.faceitMatchId} and ${faceitAnalysisCandidate.playedAt} is not null order by ${faceitAnalysisCandidate.createdAt} desc limit 1))`,
+    requesterNickname: demoDownload.requesterNickname,
+    mapName: sql<string | null>`coalesce(${demoDownload.mapName}, ${csMatch.mapName})`,
+    importStatus: importedDemo.status,
+  }).from(demoDownload).leftJoin(importedDemo, eq(demoDownload.importId, importedDemo.id))
+    .leftJoin(csMatch, eq(importedDemo.parsedMatchId, csMatch.id))
+    .orderBy(desc(demoDownload.createdAt)).limit(6);
 
   return (
     <div className="space-y-6">

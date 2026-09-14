@@ -2,8 +2,11 @@ name: Publish browser extensions
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+    paths-ignore:
+      - "faceit-scout/apps/extension-firefox/updates.json"
+
   workflow_dispatch:
     inputs:
       tag:
@@ -15,28 +18,87 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-extensions-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  group: release-extensions
+  queue: max
   cancel-in-progress: false
 
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
+
     env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
+      FIREFOX_EXTENSION_ID: faceit-scout-firefox@alihan
+      FIREFOX_UPDATE_URL: https://raw.githubusercontent.com/Ali-Ozturk/faceit-scouter/main/faceit-scout/apps/extension-firefox/updates.json
+
     steps:
-      - name: Check out release tag
+      # ---------------------------------------------------------
+      # Checkout
+      # ---------------------------------------------------------
+
+      - name: Check out source
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.sha }}
+          fetch-depth: 0
+
+      # ---------------------------------------------------------
+      # Node
+      # ---------------------------------------------------------
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: |
             faceit-scout/apps/extension/package-lock.json
             faceit-scout/apps/extension-firefox/package-lock.json
+
+      # ---------------------------------------------------------
+      # Determine release tag
+      # ---------------------------------------------------------
+
+      - name: Test version selection and choose automatic release tag
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          node --test faceit-scout/scripts/next-extension-tag.test.mjs
+          node --test faceit-scout/scripts/merge-firefox-feed.test.mjs
+
+          git fetch --tags origin
+
+          RELEASE_TAG=$(node faceit-scout/scripts/next-extension-tag.mjs)
+
+          echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+          echo "Building release $RELEASE_TAG"
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${RELEASE_TAG#v}"
+
+          if [[ ! "$version" =~ ^[0-9]+(\.[0-9]+){0,3}$ ]]; then
+            echo "Release tag must be v followed by 1-4 numeric components, for example v0.2.0." >&2
+            exit 1
+          fi
+
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+          safe_tag="${RELEASE_TAG//\//-}"
+          echo "SAFE_TAG=$safe_tag" >> "$GITHUB_ENV"
+
+          echo "Version: $version"
+          echo "Tag: $RELEASE_TAG"
+
+      # ---------------------------------------------------------
+      # Chrome
+      # ---------------------------------------------------------
 
       - name: Install Chrome extension dependencies
         working-directory: faceit-scout/apps/extension
@@ -48,6 +110,10 @@ jobs:
           npm test
           npm run build
 
+      # ---------------------------------------------------------
+      # Firefox
+      # ---------------------------------------------------------
+
       - name: Install Firefox extension dependencies
         working-directory: faceit-scout/apps/extension-firefox
         run: npm ci
@@ -58,54 +124,319 @@ jobs:
           npm test
           npm run build
 
-      - name: Set extension versions from tag
+      # ---------------------------------------------------------
+      # Set versions and Firefox update URL
+      # ---------------------------------------------------------
+
+      - name: Set extension versions and Firefox update URL
         shell: bash
         run: |
           set -euo pipefail
-          version="${RELEASE_TAG#v}"
-          if [[ ! "$version" =~ ^[0-9]+(\.[0-9]+){0,3}$ ]]; then
-            echo "Release tag must be v followed by 1-4 numeric components, for example v0.2.0." >&2
-            exit 1
-          fi
-          VERSION="$version" node <<'NODE'
+
+          VERSION="$VERSION" \
+          FIREFOX_UPDATE_URL="$FIREFOX_UPDATE_URL" \
+          FIREFOX_EXTENSION_ID="$FIREFOX_EXTENSION_ID" \
+          node <<'NODE'
           const fs = require("fs");
-          for (const file of [
-            "faceit-scout/apps/extension/dist/manifest.json",
-            "faceit-scout/apps/extension-firefox/dist/manifest.json",
-          ]) {
-            const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
-            manifest.version = process.env.VERSION;
-            fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");
-          }
+
+          const chromeManifestPath =
+            "faceit-scout/apps/extension/dist/manifest.json";
+
+          const firefoxManifestPath =
+            "faceit-scout/apps/extension-firefox/dist/manifest.json";
+
+          const chromeManifest =
+            JSON.parse(fs.readFileSync(chromeManifestPath, "utf8"));
+
+          chromeManifest.version = process.env.VERSION;
+
+          fs.writeFileSync(
+            chromeManifestPath,
+            JSON.stringify(chromeManifest, null, 2) + "\n"
+          );
+
+          const firefoxManifest =
+            JSON.parse(fs.readFileSync(firefoxManifestPath, "utf8"));
+
+          firefoxManifest.version = process.env.VERSION;
+
+          firefoxManifest.browser_specific_settings ??= {};
+          firefoxManifest.browser_specific_settings.gecko ??= {};
+
+          firefoxManifest.browser_specific_settings.gecko.id ??=
+            process.env.FIREFOX_EXTENSION_ID;
+          fs.appendFileSync(process.env.GITHUB_ENV, `FIREFOX_EXTENSION_ID=${firefoxManifest.browser_specific_settings.gecko.id}\n`);
+
+          firefoxManifest.browser_specific_settings.gecko.update_url =
+            process.env.FIREFOX_UPDATE_URL;
+
+          fs.writeFileSync(
+            firefoxManifestPath,
+            JSON.stringify(firefoxManifest, null, 2) + "\n"
+          );
+
+          console.log(`Chrome version: ${chromeManifest.version}`);
+          console.log(`Firefox version: ${firefoxManifest.version}`);
+          console.log(
+            `Firefox ID: ${firefoxManifest.browser_specific_settings.gecko.id}`
+          );
+          console.log(
+            `Firefox update URL: ${firefoxManifest.browser_specific_settings.gecko.update_url}`
+          );
           NODE
+
+      # ---------------------------------------------------------
+      # Verify manifests
+      # ---------------------------------------------------------
 
       - name: Verify extension manifests
         shell: bash
         run: |
           set -euo pipefail
+
           test -f faceit-scout/apps/extension/dist/manifest.json
           test -f faceit-scout/apps/extension-firefox/dist/manifest.json
+
           node -e "JSON.parse(require('fs').readFileSync('faceit-scout/apps/extension/dist/manifest.json'))"
           node -e "JSON.parse(require('fs').readFileSync('faceit-scout/apps/extension-firefox/dist/manifest.json'))"
 
-      - name: Package release assets
+          echo "Chrome manifest:"
+          cat faceit-scout/apps/extension/dist/manifest.json
+
+          echo ""
+          echo "Firefox manifest:"
+          cat faceit-scout/apps/extension-firefox/dist/manifest.json
+
+      # ---------------------------------------------------------
+      # Release directory
+      # ---------------------------------------------------------
+
+      - name: Create release assets directory
+        run: mkdir -p release-assets
+
+      # ---------------------------------------------------------
+      # Package Chrome
+      # ---------------------------------------------------------
+
+      - name: Package Chrome extension
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p release-assets
-          safe_tag="${RELEASE_TAG//\//-}"
+
           (
             cd faceit-scout/apps/extension/dist
-            zip -q -r "../../../../release-assets/faceit-scout-chrome-${safe_tag}.zip" .
+
+            zip -q -r \
+              "../../../../release-assets/faceit-scout-chrome-${SAFE_TAG}.zip" \
+              .
           )
+
+          unzip -t \
+            "release-assets/faceit-scout-chrome-${SAFE_TAG}.zip"
+
+      # ---------------------------------------------------------
+      # Package unsigned Firefox extension
+      # ---------------------------------------------------------
+
+      - name: Package unsigned Firefox extension
+        shell: bash
+        run: |
+          set -euo pipefail
+
           (
             cd faceit-scout/apps/extension-firefox/dist
-            zip -q -r "../../../../release-assets/faceit-scout-firefox-${safe_tag}.zip" .
+
+            zip -q -r \
+              "../../../../release-assets/faceit-scout-firefox-${SAFE_TAG}-unsigned.zip" \
+              .
           )
-          cd release-assets
-          sha256sum ./*.zip > SHA256SUMS.txt
-          unzip -t "faceit-scout-chrome-${safe_tag}.zip"
-          unzip -t "faceit-scout-firefox-${safe_tag}.zip"
+
+          unzip -t \
+            "release-assets/faceit-scout-firefox-${SAFE_TAG}-unsigned.zip"
+
+      # ---------------------------------------------------------
+      # Install Mozilla tooling
+      # ---------------------------------------------------------
+
+      - name: Install Mozilla web-ext
+        run: npm install --global web-ext@10.5.0
+
+      - name: Show web-ext version
+        run: web-ext --version
+
+      - name: Validate Firefox package and prepare review source
+        shell: bash
+        run: |
+          set -euo pipefail
+          web-ext lint --source-dir faceit-scout/apps/extension-firefox/dist
+          (cd faceit-scout/apps/extension-firefox && zip -q -r ../../../firefox-review-source.zip src scripts package.json package-lock.json tsconfig.json manifest.source.json README.md)
+
+      - name: Reuse signed XPI on release reruns
+        id: signed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p firefox-signed
+          filename="faceit-scout-firefox-${SAFE_TAG}.xpi"
+          if gh release view "$RELEASE_TAG" --json assets > /tmp/release-assets.json 2>/dev/null; then
+            if FILENAME="$filename" node -e 'process.exit(JSON.parse(require("fs").readFileSync("/tmp/release-assets.json")).assets.some(a => a.name === process.env.FILENAME) ? 0 : 1)'; then
+              gh release download "$RELEASE_TAG" --pattern "$filename" --dir firefox-signed
+              echo "reused=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      # ---------------------------------------------------------
+      # Sign Firefox extension
+      # ---------------------------------------------------------
+
+      - name: Sign Firefox extension with Mozilla
+        if: steps.signed.outputs.reused != 'true'
+        shell: bash
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          set -euo pipefail
+
+          test -n "$WEB_EXT_API_KEY" || { echo "Missing AMO_JWT_ISSUER secret" >&2; exit 1; }
+          test -n "$WEB_EXT_API_SECRET" || { echo "Missing AMO_JWT_SECRET secret" >&2; exit 1; }
+          mkdir -p firefox-signed
+
+          web-ext sign \
+            --source-dir faceit-scout/apps/extension-firefox/dist \
+            --artifacts-dir firefox-signed \
+            --channel unlisted \
+            --upload-source-code firefox-review-source.zip \
+            --timeout 300000 \
+            --approval-timeout 900000 \
+            --api-key "$WEB_EXT_API_KEY" \
+            --api-secret "$WEB_EXT_API_SECRET" \
+            --no-input
+
+          echo ""
+          echo "Mozilla signing output:"
+          find firefox-signed -maxdepth 1 -type f -print
+
+      # ---------------------------------------------------------
+      # Copy signed XPI
+      # ---------------------------------------------------------
+
+      - name: Add signed Firefox XPI to release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SIGNED_XPI="$(
+            find firefox-signed \
+              -maxdepth 1 \
+              -type f \
+              -name '*.xpi' \
+              | head -n 1
+          )"
+
+          if [[ -z "$SIGNED_XPI" ]]; then
+            echo "Mozilla did not produce a signed .xpi file." >&2
+            exit 1
+          fi
+
+          TARGET="release-assets/faceit-scout-firefox-${SAFE_TAG}.xpi"
+
+          cp "$SIGNED_XPI" "$TARGET"
+
+          echo "Signed Firefox extension:"
+          ls -lh "$TARGET"
+          unzip -t "$TARGET"
+          unzip -p "$TARGET" manifest.json > /tmp/signed-manifest.json
+          node -e 'const m=JSON.parse(require("fs").readFileSync("/tmp/signed-manifest.json")); if(m.version!==process.env.VERSION || m.browser_specific_settings?.gecko?.id!==process.env.FIREFOX_EXTENSION_ID || m.browser_specific_settings.gecko.update_url!==process.env.FIREFOX_UPDATE_URL) throw new Error("Signed XPI metadata does not match this release");'
+
+      - name: Preserve signed package if later publishing fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-signed-${{ env.SAFE_TAG }}
+          path: firefox-signed/*.xpi
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # ---------------------------------------------------------
+      # Generate updates.json
+      #
+      # Firefox checks this file for newer versions.
+      # ---------------------------------------------------------
+
+      - name: Generate Firefox updates.json
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          XPI_FILE="release-assets/faceit-scout-firefox-${SAFE_TAG}.xpi"
+
+          XPI_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/faceit-scout-firefox-${SAFE_TAG}.xpi"
+
+          XPI_HASH="$(sha256sum "$XPI_FILE" | awk '{print $1}')"
+
+          mkdir -p generated
+
+          VERSION="$VERSION" \
+          XPI_URL="$XPI_URL" \
+          XPI_HASH="$XPI_HASH" \
+          FIREFOX_EXTENSION_ID="$FIREFOX_EXTENSION_ID" \
+          node <<'NODE'
+          const fs = require("fs");
+
+          const updates = {
+            addons: {
+              [process.env.FIREFOX_EXTENSION_ID]: {
+                updates: [
+                  {
+                    version: process.env.VERSION,
+                    update_link: process.env.XPI_URL,
+                    update_hash: `sha256:${process.env.XPI_HASH}`,
+                    applications: {
+                      gecko: {
+                        strict_min_version: "121.0"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          };
+
+          fs.writeFileSync(
+            "generated/updates.json",
+            JSON.stringify(updates, null, 2) + "\n"
+          );
+          NODE
+
+          echo "Generated Firefox update manifest:"
+          cat generated/updates.json
+
+      # ---------------------------------------------------------
+      # Generate checksums
+      # ---------------------------------------------------------
+
+      - name: Generate release checksums
+        working-directory: release-assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sha256sum \
+            faceit-scout-chrome-*.zip \
+            faceit-scout-firefox-*.zip \
+            faceit-scout-firefox-*.xpi \
+            > SHA256SUMS.txt
+
+          cat SHA256SUMS.txt
+
+      # ---------------------------------------------------------
+      # GitHub Release
+      #
+      # The XPI needs to exist before we publish updates.json.
+      # ---------------------------------------------------------
 
       - name: Create release or replace extension assets
         env:
@@ -113,11 +444,102 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+
+            echo "Release $RELEASE_TAG already exists."
+            echo "Replacing assets..."
+
+            gh release upload \
+              "$RELEASE_TAG" \
+              release-assets/* \
+              --clobber
+
           else
-            gh release create "$RELEASE_TAG" release-assets/* \
-              --verify-tag \
+
+            echo "Creating release $RELEASE_TAG..."
+
+            gh release create \
+              "$RELEASE_TAG" \
+              release-assets/* \
+              --target "$(git rev-parse HEAD)" \
               --title "$RELEASE_TAG" \
               --generate-notes
+
           fi
+
+      # ---------------------------------------------------------
+      # Verify signed XPI is downloadable
+      # ---------------------------------------------------------
+
+      - name: Verify Firefox release asset
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          XPI_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/faceit-scout-firefox-${SAFE_TAG}.xpi"
+
+          echo "Checking:"
+          echo "$XPI_URL"
+
+          curl \
+            --fail \
+            --location \
+            --retry 5 \
+            --retry-delay 2 \
+            --head \
+            "$XPI_URL"
+
+      # ---------------------------------------------------------
+      # Commit updates.json to main
+      #
+      # Only automatic releases update the feed.
+      #
+      # This prevents workflow_dispatch of an old tag from
+      # accidentally downgrading the update feed.
+      # ---------------------------------------------------------
+
+      - name: Publish Firefox updates.json
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cp generated/updates.json /tmp/firefox-updates.json
+          cp faceit-scout/scripts/merge-firefox-feed.mjs /tmp/merge-firefox-feed.mjs
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git checkout -B main origin/main
+            node /tmp/merge-firefox-feed.mjs faceit-scout/apps/extension-firefox/updates.json /tmp/firefox-updates.json
+            git add faceit-scout/apps/extension-firefox/updates.json
+            if git diff --cached --quiet; then
+              echo "Update feed is already current or newer."
+              exit 0
+            fi
+            git commit -m "chore(firefox): update extension feed to ${RELEASE_TAG}"
+            if git push origin main; then exit 0; fi
+          done
+          echo "Could not publish the update feed; check main branch rules." >&2
+          exit 1
+
+      # ---------------------------------------------------------
+      # Final summary
+      # ---------------------------------------------------------
+
+      - name: Show release summary
+        shell: bash
+        run: |
+          echo "Release: ${RELEASE_TAG}"
+          echo ""
+          echo "Chrome:"
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/faceit-scout-chrome-${SAFE_TAG}.zip"
+          echo ""
+          echo "Firefox:"
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/faceit-scout-firefox-${SAFE_TAG}.xpi"
+          echo ""
+          echo "Firefox update manifest:"
+          echo "$FIREFOX_UPDATE_URL"

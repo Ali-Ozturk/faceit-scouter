@@ -11,5 +11,6 @@ const colors: Record<string, string> = {
 };
 
 export function StatusBadge({ status }: { status: string }) {
-  return <span className={`rounded px-2 py-1 text-xs font-semibold ${colors[status] ?? "bg-slate-100 text-slate-800"}`}>{status}</span>;
+  const dot = status === "FAILED" ? "bg-red-500" : ["COMPLETED", "DUPLICATE"].includes(status) ? "bg-green-500" : ["DISCOVERED", "QUEUED"].includes(status) ? "bg-blue-500" : "bg-orange-500";
+  return <span className={`inline-flex items-center gap-2 rounded px-2 py-1 text-xs font-semibold ${colors[status] ?? "bg-slate-100 text-slate-800"}`}><span className={`h-2.5 w-2.5 shrink-0 rounded-full ${dot}`} aria-hidden="true" />{status}</span>;
 }
