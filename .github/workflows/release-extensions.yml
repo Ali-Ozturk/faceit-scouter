@@ -30,7 +30,6 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
       FIREFOX_EXTENSION_ID: faceit-scout-firefox@alihan
-      FIREFOX_UPDATE_URL: https://raw.githubusercontent.com/Ali-Ozturk/faceit-scouter/main/faceit-scout/apps/extension-firefox/updates.json
 
     steps:
       # ---------------------------------------------------------
@@ -134,7 +133,6 @@ jobs:
           set -euo pipefail
 
           VERSION="$VERSION" \
-          FIREFOX_UPDATE_URL="$FIREFOX_UPDATE_URL" \
           FIREFOX_EXTENSION_ID="$FIREFOX_EXTENSION_ID" \
           node <<'NODE'
           const fs = require("fs");
@@ -167,9 +165,6 @@ jobs:
             process.env.FIREFOX_EXTENSION_ID;
           fs.appendFileSync(process.env.GITHUB_ENV, `FIREFOX_EXTENSION_ID=${firefoxManifest.browser_specific_settings.gecko.id}\n`);
 
-          firefoxManifest.browser_specific_settings.gecko.update_url =
-            process.env.FIREFOX_UPDATE_URL;
-
           fs.writeFileSync(
             firefoxManifestPath,
             JSON.stringify(firefoxManifest, null, 2) + "\n"
@@ -179,9 +174,6 @@ jobs:
           console.log(`Firefox version: ${firefoxManifest.version}`);
           console.log(
             `Firefox ID: ${firefoxManifest.browser_specific_settings.gecko.id}`
-          );
-          console.log(
-            `Firefox update URL: ${firefoxManifest.browser_specific_settings.gecko.update_url}`
           );
           NODE
 
@@ -349,7 +341,7 @@ jobs:
           ls -lh "$TARGET"
           unzip -t "$TARGET"
           unzip -p "$TARGET" manifest.json > /tmp/signed-manifest.json
-          node -e 'const m=JSON.parse(require("fs").readFileSync("/tmp/signed-manifest.json")); if(m.version!==process.env.VERSION || m.browser_specific_settings?.gecko?.id!==process.env.FIREFOX_EXTENSION_ID || m.browser_specific_settings.gecko.update_url!==process.env.FIREFOX_UPDATE_URL) throw new Error("Signed XPI metadata does not match this release");'
+          node -e 'const m=JSON.parse(require("fs").readFileSync("/tmp/signed-manifest.json")); if(m.version!==process.env.VERSION || m.browser_specific_settings?.gecko?.id!==process.env.FIREFOX_EXTENSION_ID) throw new Error("Signed XPI metadata does not match this release");'
 
       - name: Preserve signed package if later publishing fails
         if: always()
@@ -541,5 +533,3 @@ jobs:
           echo "Firefox:"
           echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/faceit-scout-firefox-${SAFE_TAG}.xpi"
           echo ""
-          echo "Firefox update manifest:"
-          echo "$FIREFOX_UPDATE_URL"

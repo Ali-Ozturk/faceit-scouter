@@ -43,8 +43,7 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "faceit-scout-firefox@alihan",
-      "strict_min_version": "121.0",
-      "update_url": "https://raw.githubusercontent.com/Ali-Ozturk/faceit-scouter/refs/heads/main/faceit-scout/apps/extension-firefox/updates.json",
+      "strict_min_version": "140.0",
       "data_collection_permissions": {
         "required": ["none"]
       }
