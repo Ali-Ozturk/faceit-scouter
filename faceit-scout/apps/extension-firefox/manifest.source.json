@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "FACEIT Scout Firefox",
+  "name": "FACEIT Scout Extension",
   "description": "Discover FACEIT matches and import up to three demos into a local or remote Scout backend.",
   "version": "0.2.0",
   "action": {
@@ -42,7 +42,7 @@
   ],
   "browser_specific_settings": {
     "gecko": {
-      "id": "faceit-scout-firefox@alihan",
+      "id": "faceit-scout-A@alihan",
       "strict_min_version": "140.0",
       "data_collection_permissions": {
         "required": ["none"]
