@@ -119,7 +119,7 @@ export function AnalysisForm() {
                   <tr>
                     <th className="px-4 py-3">Match</th>
                     <th className="px-4 py-3">Map</th>
-                    <th className="px-4 py-3">Shared</th>
+                    <th className="px-4 py-3">Players</th>
                     <th className="px-4 py-3">Played</th>
                     <th className="px-4 py-3">Status</th>
                   </tr>

@@ -37,6 +37,7 @@ export type DiscoveryCandidate = {
 };
 
 export type DiscoveryResult = {
+  requesterNickname?: string;
   opponents: FaceitPlayer[];
   opponentFaction: string;
   candidates: DiscoveryCandidate[];
@@ -169,6 +170,7 @@ export async function discoverFaceitMatches(
   });
 
   return {
+    requesterNickname: extractTeams(currentMatch).flatMap(team => team.players).find(player => player.faceitPlayerId.toLowerCase() === input.requestingPlayerFaceitId.toLowerCase())?.nickname,
     opponents: opponentTeam.players,
     opponentFaction: opponentTeam.faction,
     candidates: candidates

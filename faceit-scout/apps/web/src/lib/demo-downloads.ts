@@ -1,10 +1,19 @@
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 
+export const MAX_OUTSTANDING_DEMOS = 9;
+export function hasQueueCapacity(activeMatchIds: string[], requestedMatchIds: string[]) {
+  return new Set([...activeMatchIds, ...requestedMatchIds]).size <= MAX_OUTSTANDING_DEMOS;
+}
+
 export const demoRequest = z.object({
   demos: z.array(z.object({
     faceitMatchId: z.string().regex(/^1-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i),
     url: z.string().max(12000).refine(isDemoUrl, "Unsupported FACEIT demo URL"),
+    requesterNickname: z.string().trim().min(1).max(100).optional(),
+    analysisId: z.string().uuid().optional(),
+    matchPlayedAt: z.string().datetime({ offset: true }).nullable().optional(),
+    mapName: z.string().trim().max(64).nullable().optional(),
   })).min(1).max(3),
 });
 

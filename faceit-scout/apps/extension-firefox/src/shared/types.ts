@@ -1,9 +1,7 @@
 export type ExtensionSettings = {
   backendUrl: string;
   importKey: string;
-  downloadMode: "server" | "browser";
   faceitPlayerId: string;
-  preferredDownloadSubdirectory: string;
   maxConcurrentDownloads: number;
 };
 
@@ -18,6 +16,7 @@ export type AnalysisCandidate = {
 };
 
 export type AnalysisResponse = {
+  requesterNickname?: string;
   analysisId: string;
   minimumSharedPlayers?: number;
   opponents: Array<{ faceitPlayerId: string; nickname: string }>;
@@ -48,6 +47,9 @@ export type BackendAnalysisInput = {
 };
 
 export type PopupState = {
+  contextKey?: string;
+  messageKind?: string;
+  cooldowns?: Record<number, number>;
   matchId: string;
   selectedMap: string;
   analysis: AnalysisResponse | null;

@@ -21,6 +21,7 @@ describe("FACEIT discovery", () => {
     }), { faceitMatchId: "current", requestingPlayerFaceitId: "a1" });
 
     expect(result.candidates).toHaveLength(1);
+    expect(result.requesterNickname).toBe(allies[0].nickname);
     expect(result.candidates[0]).toMatchObject({ faceitMatchId: "shared4", sharedPlayerCount: 4, map: "de_inferno" });
   });
 

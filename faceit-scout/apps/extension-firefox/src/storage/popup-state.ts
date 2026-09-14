@@ -13,17 +13,22 @@ export const defaultPopupState: PopupState = {
   message: "",
 };
 
-export async function getPopupState(): Promise<PopupState> {
-  const stored = await extensionApi.storage.local.get(POPUP_STATE_KEY);
-  return { ...defaultPopupState, ...(stored[POPUP_STATE_KEY] ?? {}) };
+export async function getPopupState(scope?: { contextKey: string; matchId: string }): Promise<PopupState> {
+  const key = scope ? scopedKey(scope.contextKey, scope.matchId) : POPUP_STATE_KEY;
+  const stored = await extensionApi.storage.local.get(key);
+  return { ...defaultPopupState, ...(stored[key] ?? {}) };
 }
 
 export async function savePopupState(state: Partial<PopupState>) {
-  const current = await getPopupState();
+  const current = await getPopupState(state.contextKey && state.matchId ? { contextKey: state.contextKey, matchId: state.matchId } : undefined);
   const next = { ...current, ...state };
-  await extensionApi.storage.local.set({ [POPUP_STATE_KEY]: next });
+  await extensionApi.storage.local.set({ [POPUP_STATE_KEY]: next,
+    ...(next.contextKey && next.matchId ? { [scopedKey(next.contextKey, next.matchId)]: next } : {}),
+  });
   return next;
 }
+
+function scopedKey(contextKey: string, matchId: string) { return `${POPUP_STATE_KEY}:${contextKey}:${matchId}`; }
 
 export async function getStoredDownloadStatuses(): Promise<DownloadStatus[]> {
   const stored = await extensionApi.storage.local.get(DOWNLOAD_STATUS_KEY);

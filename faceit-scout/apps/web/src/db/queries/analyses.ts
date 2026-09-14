@@ -9,6 +9,7 @@ import {
 import type { DiscoveryCandidate, DiscoveryInput, DiscoveryResult, FaceitPlayer } from "@/lib/faceit/discovery";
 
 export type StoredAnalysis = {
+  requesterNickname?: string | null;
   analysisId: string;
   faceitMatchId: string;
   requestingPlayerFaceitId: string;
@@ -39,6 +40,7 @@ export async function createAnalysis(input: DiscoveryInput, result: DiscoveryRes
     .values({
       faceitMatchId: input.faceitMatchId,
       requestingPlayerFaceitId: input.requestingPlayerFaceitId,
+      requesterNickname: result.requesterNickname,
       selectedMap: input.selectedMap ?? null,
       opponentFaction: result.opponentFaction,
     })
@@ -85,6 +87,7 @@ export async function getAnalysisById(id: string): Promise<StoredAnalysis | null
 
   return {
     analysisId: analysis.id,
+    requesterNickname: analysis.requesterNickname,
     faceitMatchId: analysis.faceitMatchId,
     requestingPlayerFaceitId: analysis.requestingPlayerFaceitId,
     selectedMap: analysis.selectedMap,
@@ -130,6 +133,7 @@ function toStoredAnalysis(
 ): StoredAnalysis {
   return {
     analysisId: analysis.id,
+    requesterNickname: analysis.requesterNickname,
     faceitMatchId: analysis.faceitMatchId,
     requestingPlayerFaceitId: analysis.requestingPlayerFaceitId,
     selectedMap: analysis.selectedMap,

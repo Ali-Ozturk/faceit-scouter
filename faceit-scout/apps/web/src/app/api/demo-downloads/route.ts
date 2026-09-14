@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { demoDownload, importedDemo } from "@/db/schema";
-import { authorizeDemoRequest, demoRequest } from "@/lib/demo-downloads";
+import { demoDownload, importedDemo, faceitAnalysis, faceitAnalysisCandidate } from "@/db/schema";
+import { authorizeDemoRequest, demoRequest, hasQueueCapacity } from "@/lib/demo-downloads";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +11,7 @@ export async function GET(request: Request) {
   // Never return signed URLs; they grant temporary access to the demo.
   const jobs = await db.select({ id: demoDownload.id, faceitMatchId: demoDownload.faceitMatchId,
     status: demoDownload.status, error: demoDownload.error, createdAt: demoDownload.createdAt,
+    requesterNickname: demoDownload.requesterNickname, matchPlayedAt: demoDownload.matchPlayedAt, mapName: demoDownload.mapName,
     importId: demoDownload.importId, importStatus: importedDemo.status,
     parsedMatchId: importedDemo.parsedMatchId,
   }).from(demoDownload).leftJoin(importedDemo, eq(demoDownload.importId, importedDemo.id))
@@ -43,12 +44,26 @@ export async function POST(request: Request) {
     await tx.execute(sql`select pg_advisory_xact_lock(73190421)`);
     const active = await tx.select().from(demoDownload).where(inArray(demoDownload.status, ["QUEUED", "DOWNLOADING", "PROCESSING"]));
     const additions = demos.filter(d => !active.some(a => a.faceitMatchId === d.faceitMatchId));
-    if (active.length + additions.length > 3) return null;
-    if (additions.length) await tx.insert(demoDownload).values(additions.map(d => ({ faceitMatchId: d.faceitMatchId, signedUrl: d.url })));
+    if (!hasQueueCapacity(active.map(job => job.faceitMatchId), demos.map(demo => demo.faceitMatchId))) return null;
+    for (const demo of additions) {
+      // Resolve metadata from the original analysis as well as the extension snapshot.
+      // Never infer a requester from another user's analysis of the same historical match.
+      const [candidate] = demo.analysisId ? await tx.select({
+        requesterNickname: faceitAnalysis.requesterNickname,
+        playedAt: faceitAnalysisCandidate.playedAt, mapName: faceitAnalysisCandidate.mapName,
+      }).from(faceitAnalysisCandidate).innerJoin(faceitAnalysis, eq(faceitAnalysisCandidate.analysisId, faceitAnalysis.id))
+        .where(and(eq(faceitAnalysisCandidate.analysisId, demo.analysisId), eq(faceitAnalysisCandidate.faceitMatchId, demo.faceitMatchId))).limit(1) : [];
+      await tx.insert(demoDownload).values({
+        faceitMatchId: demo.faceitMatchId, signedUrl: demo.url,
+        requesterNickname: candidate?.requesterNickname ?? demo.requesterNickname,
+        mapName: candidate?.mapName ?? demo.mapName,
+        matchPlayedAt: candidate?.playedAt ?? (demo.matchPlayedAt ? new Date(demo.matchPlayedAt) : null),
+      });
+    }
     return tx.select({ id: demoDownload.id, faceitMatchId: demoDownload.faceitMatchId, status: demoDownload.status })
       .from(demoDownload).where(and(inArray(demoDownload.faceitMatchId, demos.map(d => d.faceitMatchId)), inArray(demoDownload.status, ["QUEUED", "DOWNLOADING", "PROCESSING"])));
   }).catch(() => undefined); // Do not log DB exception parameters containing signed URLs.
   if (result === undefined) return NextResponse.json({ error: "Import queue unavailable. Try again shortly." }, { status: 503 });
-  if (!result) return NextResponse.json({ error: "Three demos are already queued or processing. Wait for a slot to finish." }, { status: 409 });
+  if (!result) return NextResponse.json({ error: "The queue is full (9 demos queued or processing). Wait for a demo to finish." }, { status: 409 });
   return NextResponse.json({ jobs: result }, { status: 202, headers: { "Cache-Control": "no-store" } });
 }

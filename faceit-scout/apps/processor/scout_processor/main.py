@@ -56,21 +56,23 @@ async def run() -> None:
     settings.ensure_directories()
     session_factory = make_session_factory(settings)
     imports = ImportRepository(session_factory)
-    queue: asyncio.Queue[Path] = asyncio.Queue(maxsize=max(1, settings.processor_concurrency * 4))
+    # URL admission can retain nine jobs; active download/parse work is capped separately.
+    concurrency = min(3, settings.processor_concurrency) if settings.url_imports_enabled else settings.processor_concurrency
+    queue: asyncio.Queue[Path] = asyncio.Queue(maxsize=max(1, concurrency * 4))
     queued_paths: set[Path] = set()
-    parse_executor = ProcessPoolExecutor(max_workers=settings.processor_concurrency)
-    slots = asyncio.Semaphore(settings.processor_concurrency)
+    parse_executor = ProcessPoolExecutor(max_workers=concurrency)
+    slots = asyncio.Semaphore(concurrency)
 
     tasks = [
         asyncio.create_task(cleanup_loop(settings, imports)),
         asyncio.create_task(enqueue_existing(settings, queue, imports, queued_paths)),
         asyncio.create_task(watch_incoming(settings, queue, imports, queued_paths)),
     ]
-    for index in range(settings.processor_concurrency):
+    for index in range(concurrency):
         tasks.append(asyncio.create_task(worker(f"worker-{index + 1}", queue, queued_paths, settings, imports, session_factory, parse_executor, slots)))
         if settings.url_imports_enabled:
             tasks.append(asyncio.create_task(download_worker(f"download-{index + 1}", settings, imports, session_factory, parse_executor, slots)))
-    logger.info("processor_started", incoming_directory=str(settings.incoming_directory), concurrency=settings.processor_concurrency)
+    logger.info("processor_started", incoming_directory=str(settings.incoming_directory), concurrency=concurrency)
     await asyncio.gather(*tasks)
 
 
