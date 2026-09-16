@@ -4,6 +4,7 @@ export type ExtensionMessage =
   | { type: "GET_SETTINGS" }
   | { type: "SAVE_SETTINGS"; settings: Partial<ExtensionSettings> }
   | { type: "GET_CURRENT_FACEIT_MATCH" }
+  | { type: "GET_ANALYSIS_COOLDOWNS" }
   | { type: "CURRENT_FACEIT_MATCH"; payload: CurrentFaceitMatch }
   | { type: "CREATE_ANALYSIS"; input: BackendAnalysisInput }
   | { type: "ANALYSIS_CREATED"; payload: AnalysisResponse }
@@ -19,6 +20,7 @@ export function isExtensionMessage(value: unknown): value is ExtensionMessage {
     "GET_SETTINGS",
     "SAVE_SETTINGS",
     "GET_CURRENT_FACEIT_MATCH",
+    "GET_ANALYSIS_COOLDOWNS",
     "CURRENT_FACEIT_MATCH",
     "CREATE_ANALYSIS",
     "ANALYSIS_CREATED",

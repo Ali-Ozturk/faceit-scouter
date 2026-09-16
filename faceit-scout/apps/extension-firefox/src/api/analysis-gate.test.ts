@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ create: vi.fn(), store: {} as Record<string, unknown> }));
 vi.mock("./backend.js", () => ({ createAnalysis: mocks.create, createAnalysisRequest: (x: unknown) => x, normalizeBackendUrl: (x: string) => x }));
 vi.mock("../shared/extension-api.js", () => ({ extensionApi: { storage: { local: { get: async () => mocks.store, set: async (value: object) => Object.assign(mocks.store, value) } } } }));
-import { guardedAnalysis } from "./analysis-gate";
+import { getAnalysisCooldowns, guardedAnalysis } from "./analysis-gate";
 const input = { faceitMatchId: "match", requestingPlayerFaceitId: "player", selectedMap: "de_inferno" };
 beforeEach(() => {
   mocks.store = {}; mocks.create.mockReset();
@@ -35,4 +35,9 @@ it("keeps a cooldown after API failures", async () => {
   await expect(guardedAnalysis("https://example.com", input)).rejects.toThrow("Rate limited");
   await expect(guardedAnalysis("https://example.com", input)).rejects.toThrow("Please wait");
   expect(mocks.create).toHaveBeenCalledTimes(1);
+});
+it("exposes the same cooldown timestamps used by the request gate", async () => {
+  const until = Date.now() + 6000;
+  mocks.store["faceitScoutAnalysisGate:https://example.com:4"] = { key: "previous", until };
+  expect(await getAnalysisCooldowns("https://example.com")).toEqual({ 3: 0, 4: until });
 });
