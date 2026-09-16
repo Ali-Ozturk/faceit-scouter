@@ -4,10 +4,10 @@ import { createAnalysisRequest, demoJobs, mapAnalysisResponse, normalizeBackendU
 afterEach(() => vi.unstubAllGlobals());
 
 describe("backend API helpers", () => {
-  it("transmits analysis and display metadata with the demo URL", async () => {
+  it("creates authenticated upload requests without demo URLs", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ jobs: [] })));
     vi.stubGlobal("fetch", fetchMock);
-    const demo = { faceitMatchId: "match", url: "https://example.com/demo.dem", analysisId: "analysis", requesterNickname: "aliyo", matchPlayedAt: "2026-09-14T10:00:00Z", mapName: "de_inferno" };
+    const demo = { faceitMatchId: "match", analysisId: "analysis", requesterNickname: "aliyo", matchPlayedAt: "2026-09-14T10:00:00Z", mapName: "de_inferno" };
     await demoJobs("https://scout.example.com", "test-key-long-enough-for-imports", [demo]);
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ demos: [demo] });
   });

@@ -26,7 +26,7 @@ class ImportRepository:
                 file_name=path.name,
                 original_path=str(path),
                 current_path=str(path),
-                source_extension=".dem.zst" if path.name.endswith(".dem.zst") else path.suffix,
+                source_extension=".dem.zst" if path.name.endswith(".dem.zst") else ".dem.gz" if path.name.endswith(".dem.gz") else path.suffix,
                 file_size=path.stat().st_size if path.exists() else 0,
                 status=ImportStatus.DISCOVERED,
             )
@@ -44,7 +44,7 @@ class ImportRepository:
                 file_name=path.name,
                 original_path=str(path),
                 current_path=str(path),
-                source_extension=".dem.zst" if path.name.endswith(".dem.zst") else path.suffix,
+                source_extension=".dem.zst" if path.name.endswith(".dem.zst") else ".dem.gz" if path.name.endswith(".dem.gz") else path.suffix,
                 file_size=path.stat().st_size,
                 status=ImportStatus.DISCOVERED,
             )

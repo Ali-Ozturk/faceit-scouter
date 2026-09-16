@@ -31,6 +31,7 @@ async def process_file(
     session_factory: sessionmaker[Session],
     parse_executor: Executor | None = None,
     worker_name: str | None = None,
+    expected_map: str | None = None,
 ) -> None:
     total_started_at = perf_counter()
     imported = imports.create_or_get(path)
@@ -53,6 +54,9 @@ async def process_file(
         duplicate = imports.find_completed_by_checksum(checksum)
         log_stage_timing(imports, "duplicate_lookup", stage_started_at, worker_name, imported.id, path.name)
         if duplicate:
+            selected_match = extract_faceit_match_id(claimed_path.name)
+            if selected_match and duplicate.faceit_match_id and selected_match != duplicate.faceit_match_id:
+                raise ProcessingError(ErrorCode.PARSER_FAILED, 'This demo was already imported for a different FACEIT match.')
             stage_started_at = perf_counter()
             completed = move_file(claimed_path, settings.completed_directory) if settings.keep_completed_demos else claimed_path
             imports.update_status(
@@ -78,6 +82,8 @@ async def process_file(
         logger.info("parse_started", worker=worker_name, import_id=str(imported.id), file_name=path.name)
         parse_started_at = perf_counter()
         parsed = await asyncio.get_running_loop().run_in_executor(parse_executor, parse_demo_in_process, str(demo_path), checksum)
+        if expected_map and parsed.map_name.lower() != expected_map.lower():
+            raise ProcessingError(ErrorCode.PARSER_FAILED, 'The demo map does not match the selected historical match. Check the file assignment.')
         parse_duration_ms = duration_ms(parse_started_at)
         imports.record_stage_log(
             imported.id,
@@ -142,8 +148,8 @@ def cleanup_completed(import_id, source, settings, imports):
     if settings.keep_completed_demos:
         return
     try:
-        if source.name.endswith('.dem.zst') and not settings.keep_decompressed_demos:
-            (settings.decompressed_directory / source.name.removesuffix('.zst')).unlink(missing_ok=True)
+        if source.name.endswith(('.dem.zst', '.dem.gz')) and not settings.keep_decompressed_demos:
+            (settings.decompressed_directory / source.stem).unlink(missing_ok=True)
         source.unlink(missing_ok=True)
         # Preserve the terminal status while clearing the now-removed file path.
         from sqlalchemy import update

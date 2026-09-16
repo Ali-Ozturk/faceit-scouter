@@ -12,12 +12,13 @@
     <label>Your FACEIT nickname or player ID<input id="player-id" autocomplete="off" spellcheck="false"/></label>
     <button id="save-connection">Save connection</button>
     <div id="settings-message" class="notice" role="status" hidden></div>
-    <p class="muted">Your backend downloads and parses demos. FACEIT cookies stay in your browser.</p>
+    <p class="muted">Download demos manually on FACEIT, then upload them on Scout’s Imports page.</p>
   </section>
   <section class="match-card">
-    <div><small>CURRENT MATCH</small><h2 id="match-summary">Open a FACEIT matchroom</h2><p class="muted" id="match-hint">The selected map appears automatically.</p></div>
+    <div><small>CURRENT MATCH</small><h2 id="match-summary">Open a FACEIT matchroom</h2><p class="muted" id="match-hint">Use the API-selected map or choose a map below.</p></div>
     <button id="start-analysis" disabled>Analyze</button>
   </section>
+  <label>Map<select id="selected-map"><option value="">Automatic (Data API)</option><option value="de_ancient">ancient</option><option value="de_anubis">anubis</option><option value="de_cache">cache</option><option value="de_dust2">dust2</option><option value="de_inferno">inferno</option><option value="de_mirage">mirage</option><option value="de_nuke">nuke</option><option value="de_overpass">overpass</option><option value="de_train">train</option><option value="de_vertigo">vertigo</option></select></label>
   <div id="message" class="notice" role="status" aria-live="polite">Open a matchroom to get started.</div>
   <section id="fallback-analysis" class="fallback" hidden><div><h2>No 4-player history found</h2><p>Try matches with 3 of these players.</p></div><button id="fallback-analysis-button" class="secondary">Try 3 players</button></section>
   <section id="results">
@@ -25,7 +26,7 @@
     <div id="opponents" aria-label="Opponents"></div>
     <div id="candidate-list"><p class="empty">Analyze your opponents to find their recent matches on this map.</p></div>
   </section>
-  <footer><div><strong id="selection-count">0 of 3 selected</strong><small>Newest unprocessed demos selected first</small></div><button id="download-selected" disabled>Import selected</button></footer>
+  <footer><div><strong id="selection-count">0 of 3 selected</strong><small>Newest unprocessed demos selected first</small></div><button id="download-selected" disabled>Open matches</button></footer>
 </main>
 <script type="module" src="./popup.js"></script>
 </body></html>

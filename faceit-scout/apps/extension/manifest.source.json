@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FACEIT Scout",
-  "description": "Discover FACEIT matches and import up to three demos into a local or remote Scout backend.",
+  "description": "Discover historical matches, open matchrooms for manual download, and upload demos to Scout.",
   "version": "0.2.0",
   "action": {
     "default_popup": "popup/index.html",
@@ -11,33 +11,14 @@
     "service_worker": "background/service-worker.js",
     "type": "module"
   },
-  "content_scripts": [
-    {
-      "matches": [
-        "https://www.faceit.com/*",
-        "https://*.faceit.com/*"
-      ],
-      "js": [
-        "content/faceit-content.js"
-      ],
-      "run_at": "document_idle"
-    }
-  ],
   "permissions": [
-    "activeTab",
-    "scripting",
     "storage",
     "tabs",
     "alarms"
   ],
   "host_permissions": [
     "http://localhost/*",
-    "http://127.0.0.1/*",
-    "https://www.faceit.com/*",
-    "https://*.faceit.com/*",
-    "https://*.amazonaws.com/*",
-    "https://*.cloudfront.net/*",
-    "https://*.backblazeb2.com/*"
+    "http://127.0.0.1/*"
   ],
   "optional_host_permissions": [
     "https://*/*"

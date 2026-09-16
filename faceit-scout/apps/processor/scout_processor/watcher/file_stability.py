@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 IGNORED_SUFFIXES = (".crdownload", ".tmp", ".part")
-SUPPORTED_SUFFIXES = (".dem", ".dem.zst")
+SUPPORTED_SUFFIXES = (".dem", ".dem.zst", ".dem.gz")
 
 
 def is_supported_demo(path: Path) -> bool:

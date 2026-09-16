@@ -31,7 +31,6 @@ await run("npx", ["tsc", "--noEmit"]);
 const options = {
   entryPoints: {
     "background/service-worker": path.join(root, "src/background/service-worker.ts"),
-    "content/faceit-content": path.join(root, "src/content/faceit-content.ts"),
     "popup/popup": path.join(root, "src/popup/popup.ts"),
   },
   bundle: true,

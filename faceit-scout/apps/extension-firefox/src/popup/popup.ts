@@ -1,3 +1,4 @@
+import { checkedReply } from "../shared/rpc.js";
 import { extensionApi } from "../shared/extension-api.js";
 import { createAnalysisRequest, normalizeBackendUrl } from "../api/backend.js";
 import type { AnalysisResponse, CurrentFaceitMatch, DownloadStatus, ExtensionSettings } from "../shared/types.js";
@@ -40,6 +41,7 @@ async function init() {
   button("start-analysis").onclick = () => void analyze(4);
   button("fallback-analysis-button").onclick = () => void analyze(3);
   button("unselect-all").onclick = () => { selectedIds.clear(); renderCandidates(); void persist(); };
+  el("selected-map").onchange = () => { selectedMap = (el("selected-map") as HTMLSelectElement).value; analysis = null; selectedIds.clear(); renderAnalysis(); void persist(); };
   button("download-selected").onclick = () => void importSelected();
   extensionApi.runtime.onMessage.addListener(payload => {
     if (payload?.type === "DOWNLOAD_PROGRESS") {
@@ -57,9 +59,9 @@ async function init() {
   statuses = await getStoredDownloadStatuses();
   await updateConnection();
   renderAnalysis();
-  notice(stored.contextKey === contextKey() && stored.message ? stored.message : selectedMap ? "Ready. Analyze to find your opponents’ history." : "Waiting for a matchroom and final map selection.", stored.messageKind ?? "info");
+  notice(stored.contextKey === contextKey() && stored.message ? stored.message : selectedMap ? "Ready. Analyze to find your opponents’ history." : "Open a matchroom. Analyze uses the Data API map, or choose a map below.", stored.messageKind ?? "info");
   await detect();
-  // Local DOM inspection only. No FACEIT API request is made by this timer.
+  // Read browser tab URLs only; never inspect FACEIT page content.
   setInterval(() => { void detect(); updateButtons(); }, 2000);
 }
 function connectionFields() {
@@ -113,6 +115,7 @@ async function detect() {
     const current = await send<CurrentFaceitMatch>({ type: "GET_CURRENT_FACEIT_MATCH" });
     if (!current.matchId) {
       // A different browser tab is not a request to discard the last match.
+      (el("selected-map") as HTMLSelectElement).value = selectedMap;
       el("match-summary").textContent = selectedMap ? displayMap(selectedMap) : "Open a FACEIT matchroom";
       el("match-hint").textContent = analysis ? "Saved analysis · return to your matchroom anytime" : "Your previous match stays available while you browse.";
       return;
@@ -127,9 +130,9 @@ async function detect() {
       cooldowns = saved.cooldowns ?? {};
       selectedIds = new Set(saved.selectedCandidateIds);
       renderAnalysis();
-      notice(saved.message || (selectedMap ? "Ready. Analyze to find your opponents’ history." : "Waiting for the final map selection."), saved.messageKind ?? "info");
+      notice(saved.message || (selectedMap ? "Ready. Analyze to find your opponents’ history." : "Analyze uses the Data API map, or choose a map below."), saved.messageKind ?? "info");
     }
-    // A temporarily missing DOM label (tab loading/voting UI) must not erase results.
+    // Keep the manually selected map while browsing other tabs.
     if (current.selectedMap && current.selectedMap !== selectedMap) {
       selectedMap = current.selectedMap;
       analysis = null;
@@ -137,15 +140,15 @@ async function detect() {
       renderAnalysis();
       notice("Map selected. Analyze to find your opponents’ history.");
     }
-    el("match-summary").textContent = selectedMap ? displayMap(selectedMap) : "Waiting for map voting";
-    el("match-hint").textContent = selectedMap ? "Find recent matches from these opponents" : "No analysis requests are made while waiting.";
+    el("match-summary").textContent = selectedMap ? displayMap(selectedMap) : "Map from Data API";
+    el("match-hint").textContent = selectedMap ? "Find recent matches from these opponents" : "Choose a map below if the API has no final selection.";
   } catch (error) { notice(errorText(error), "error"); }
   finally { detecting = false; updateButtons(); }
 }
 async function analyze(players: number) {
   if (analyzing || importing || Date.now() < (cooldowns[players] ?? 0)) return;
   await detect();
-  if (!matchId || !selectedMap || !connectionReady) return;
+  if (!matchId || !connectionReady) return;
   // Set before the first request so repeated clicks cannot queue requests.
   if (analyzing) return;
   analyzing = true;
@@ -177,17 +180,18 @@ async function importSelected() {
   if (!candidates.length) return;
   importing = true;
   updateButtons();
-  notice(`Submitting ${candidates.length} demos to your backend…`, "busy");
+  notice(`Opening ${candidates.length} matches…`, "busy");
   try {
-    const response = await send<{ error?: string; statuses?: DownloadStatus[] }>({ type: "START_DOWNLOADS", candidates, includeProcessed: false, requesterNickname: analysis.requesterNickname, analysisId: analysis.analysisId });
+    const response = await send<{ error?: string; statuses?: DownloadStatus[] }>({ type: "OPEN_SELECTED_MATCHES", candidates, includeProcessed: false, requesterNickname: analysis.requesterNickname, analysisId: analysis.analysisId });
     if (response.error) throw new Error(response.error);
     if (response.statuses) statuses = response.statuses;
-    const failed = response.statuses?.filter(s => ["failed", "waiting_for_user", "unavailable"].includes(s.state)) ?? [];
-    notice(failed.length ? `${failed.length} demo(s) could not be submitted. Check the details below.` : "Demos submitted. Your backend will download, parse and save them.", failed.length ? "error" : "success");
+    const failed = response.statuses?.filter(s => candidates.some(c => c.faceitMatchId === s.faceitMatchId) && ["failed", "unavailable"].includes(s.state)) ?? [];
+    notice(failed.length ? `${failed.length} demo(s) could not be submitted. Check the details below.` : "Matchrooms opened. Download each demo manually, then upload on Scout’s Imports page.", failed.length ? "error" : "success");
   } catch (error) { notice(errorText(error), "error"); }
   finally { importing = false; renderCandidates(); await persist(); }
 }
 function renderAnalysis() {
+  (el("selected-map") as HTMLSelectElement).value = selectedMap;
   el("fallback-analysis").hidden = !(analysis && !analysis.candidates.length && minimumPlayers >= 4);
   el("opponents").replaceChildren();
   for (const opponent of analysis?.opponents ?? []) el("opponents").append(node("span", opponent.nickname, "chip"));
@@ -231,20 +235,21 @@ function renderCandidates() {
   updateButtons();
 }
 function updateButtons() {
+  (el("selected-map") as HTMLSelectElement).disabled = analyzing || importing;
   const seconds = Math.max(0, Math.ceil(((cooldowns[4] ?? 0) - Date.now()) / 1000));
-  button("start-analysis").disabled = !connectionReady || !matchId || !selectedMap || analyzing || importing || seconds > 0;
+  button("start-analysis").disabled = !connectionReady || !matchId || analyzing || importing || seconds > 0;
   button("start-analysis").textContent = analyzing ? "Analyzing…" : seconds ? `Wait ${seconds}s` : "Analyze";
   const fallbackSeconds = Math.max(0, Math.ceil(((cooldowns[3] ?? 0) - Date.now()) / 1000));
-  button("fallback-analysis-button").disabled = !connectionReady || !matchId || !selectedMap || analyzing || importing || fallbackSeconds > 0;
+  button("fallback-analysis-button").disabled = !connectionReady || !matchId || analyzing || importing || fallbackSeconds > 0;
   button("fallback-analysis-button").textContent = fallbackSeconds ? `Wait ${fallbackSeconds}s` : "Try 3 players";
   button("download-selected").disabled = !selectedIds.size || importing || analyzing || !connectionReady;
-  button("download-selected").textContent = importing ? "Submitting…" : `Import selected${selectedIds.size ? " (" + selectedIds.size + ")" : ""}`;
+  button("download-selected").textContent = importing ? "Opening…" : `Open matches${selectedIds.size ? " (" + selectedIds.size + ")" : ""}`;
   button("unselect-all").disabled = !selectedIds.size || importing;
   button("settings-toggle").disabled = analyzing || importing;
   el("selection-count").textContent = `${selectedIds.size} of 3 selected`;
 }
 function stateLabel(status?: DownloadStatus) {
-  const labels: Record<string, string> = { queued: "Queued", opening: "Getting URL", downloading: "Downloading", processing: "Processing", completed: "Processed", failed: "Failed", waiting_for_user: "Needs attention", unavailable: "Unavailable" };
+  const labels: Record<string, string> = { queued: "Queued", opening: "Opening match", downloading: "Downloading", processing: "Processing", completed: "Processed", failed: "Failed", waiting_for_user: "Awaiting upload", unavailable: "Unavailable" };
   return status ? labels[status.state] : "Ready";
 }
 function relativeDate(value: string | null) {
@@ -264,6 +269,6 @@ function notice(text: string, kind = "info") {
   if (settings && matchId) void persist();
 }
 function errorText(error: unknown) { return error instanceof Error ? error.message : "An unexpected error occurred."; }
-function send<T>(payload: unknown): Promise<T> { return extensionApi.runtime.sendMessage(payload); }
+function send<T>(payload: unknown): Promise<T> { return checkedReply<T>(extensionApi.runtime.sendMessage(payload)); }
 function contextKey() { return JSON.stringify([settings.backendUrl, settings.faceitPlayerId]); }
 async function persist() { await savePopupState({ contextKey: contextKey(), cooldowns, messageKind: el("message").dataset.kind, matchId, selectedMap, analysis, analysisMinimumSharedPlayers: minimumPlayers, selectedCandidateIds: [...selectedIds], message: el("message").textContent ?? "" }); }

@@ -9,6 +9,7 @@ import { db } from "@/db";
 import { demoDownload, importedDemo, csMatch, faceitAnalysisCandidate } from "@/db/schema";
 import { desc, eq, sql } from "drizzle-orm";
 import { DownloadQueue } from "@/components/download-queue";
+import { DemoUploader } from "@/components/demo-uploader";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 3;
@@ -34,6 +35,7 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
         <h1 className="text-3xl font-bold">Imports</h1>
         <p className="mt-2 text-slate-600">Current and historical demo processing states.</p>
       </div>
+      <DemoUploader />
       <DownloadQueue jobs={jobs} />
       <div className="flex flex-wrap gap-2">
         <a className="rounded border bg-white px-3 py-2 text-sm" href="/imports">All</a>
