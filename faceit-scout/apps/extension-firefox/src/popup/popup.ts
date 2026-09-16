@@ -54,7 +54,7 @@ async function init() {
   selectedMap = stored.selectedMap;
   analysis = stored.contextKey === contextKey() ? stored.analysis : null;
   minimumPlayers = stored.analysisMinimumSharedPlayers;
-  cooldowns = stored.cooldowns ?? {};
+  await refreshCooldowns();
   selectedIds = new Set(stored.selectedCandidateIds.slice(0, 3));
   statuses = await getStoredDownloadStatuses();
   await updateConnection();
@@ -62,7 +62,8 @@ async function init() {
   notice(stored.contextKey === contextKey() && stored.message ? stored.message : selectedMap ? "Ready. Analyze to find your opponents’ history." : "Open a matchroom. Analyze uses the Data API map, or choose a map below.", stored.messageKind ?? "info");
   await detect();
   // Read browser tab URLs only; never inspect FACEIT page content.
-  setInterval(() => { void detect(); updateButtons(); }, 2000);
+  setInterval(updateButtons, 1000);
+  setInterval(() => { void detect(); }, 2000);
 }
 function connectionFields() {
   return { backendUrl: field("backend-url").value.trim(), importKey: field("import-key").value.trim(), faceitPlayerId: field("player-id").value.trim() };
@@ -101,6 +102,7 @@ function saveConnection() {
       statuses = [];
       selectedIds.clear();
       await updateConnection();
+      await refreshCooldowns();
       openSettings(false);
       renderAnalysis();
       await persist();
@@ -127,7 +129,6 @@ async function detect() {
       selectedMap = saved.selectedMap || current.selectedMap || "";
       analysis = saved.analysis;
       minimumPlayers = saved.analysisMinimumSharedPlayers;
-      cooldowns = saved.cooldowns ?? {};
       selectedIds = new Set(saved.selectedCandidateIds);
       renderAnalysis();
       notice(saved.message || (selectedMap ? "Ready. Analyze to find your opponents’ history." : "Analyze uses the Data API map, or choose a map below."), saved.messageKind ?? "info");
@@ -152,7 +153,6 @@ async function analyze(players: number) {
   // Set before the first request so repeated clicks cannot queue requests.
   if (analyzing) return;
   analyzing = true;
-  cooldowns[players] = Date.now() + 6000;
   updateButtons();
   el("fallback-analysis").hidden = true;
   notice("Analyzing opponents… This can take a moment.", "busy");
@@ -169,8 +169,9 @@ async function analyze(players: number) {
     notice(analysis.candidates.length ? `Found ${analysis.candidates.length} matches with ${minimumPlayers}+ players.` + (response.warnings?.length ? " Some history was unavailable: " + response.warnings.join(" ") : "") : "Analysis complete. No matching history found.", response.warnings?.length ? "info" : "success");
     await persist();
   } catch (error) { notice(errorText(error), "error"); }
-  finally { analyzing = false; cooldowns[players] = Date.now() + 6000; updateButtons(); await persist(); }
+  finally { analyzing = false; await refreshCooldowns().catch(() => undefined); updateButtons(); await persist(); }
 }
+async function refreshCooldowns() { cooldowns = await send<Record<number, number>>({ type: "GET_ANALYSIS_COOLDOWNS" }); }
 function unavailable(id: string) {
   return statuses.some(s => s.faceitMatchId === id && ["queued", "opening", "downloading", "processing", "completed"].includes(s.state));
 }

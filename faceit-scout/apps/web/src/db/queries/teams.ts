@@ -1,90 +1,10 @@
-import { createHash } from "crypto";
 import { and, count, countDistinct, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { csMatch, faceitAnalysisCandidate, grenadeEvent, matchPlayer, matchTeam, matchTeamLineup, player, round, roundPlayerLoadout, roundPositionSample, teamLineup, teamLineupMember } from "@/db/schema";
-
-type ExactLineup = {
-  id: string;
-  displayName: string;
-  playerCount: number;
-  memberIds: string[];
-  memberNames: string[];
-  matchCount: number;
-  maps: string | null;
-  lastPlayedAt: Date | string | null;
-  lastProcessedAt: Date | string | null;
-};
-
-function groupId(ids: string[]) {
-  const key = [...ids].sort().join(":");
-  return `grp_${createHash("sha256").update(key).digest("hex").slice(0, 12)}`;
-}
+import { buildLineupGroups, candidateMatchesLineup, type ExactLineup } from "@/db/queries/lineup-groups";
 
 function parseGroupId(id: string) {
   return id.startsWith("group_") ? id.slice("group_".length).split("_").filter(Boolean) : null;
-}
-
-function overlapCount(left: string[], right: string[]) {
-  const rightSet = new Set(right);
-  return left.filter((id) => rightSet.has(id)).length;
-}
-
-function buildLineupGroups(lineups: ExactLineup[]) {
-  const parent = new Map(lineups.map((lineup) => [lineup.id, lineup.id]));
-  const find = (id: string): string => {
-    const current = parent.get(id) ?? id;
-    if (current === id) return id;
-    const root = find(current);
-    parent.set(id, root);
-    return root;
-  };
-  const union = (left: string, right: string) => {
-    const leftRoot = find(left);
-    const rightRoot = find(right);
-    if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
-  };
-
-  for (let i = 0; i < lineups.length; i += 1) {
-    for (let j = i + 1; j < lineups.length; j += 1) {
-      if (overlapCount(lineups[i].memberIds, lineups[j].memberIds) >= 4) {
-        union(lineups[i].id, lineups[j].id);
-      }
-    }
-  }
-
-  const groups = new Map<string, ExactLineup[]>();
-  for (const lineup of lineups) {
-    const root = find(lineup.id);
-    groups.set(root, [...(groups.get(root) ?? []), lineup]);
-  }
-
-  return [...groups.values()].map((group) => {
-    const sorted = [...group].sort((a, b) => {
-      return dateTime(b.lastProcessedAt) - dateTime(a.lastProcessedAt);
-    });
-    const ids = sorted.map((lineup) => lineup.id);
-    const memberNames = [...new Set(sorted.flatMap((lineup) => lineup.memberNames))].sort((a, b) => a.localeCompare(b));
-    const maps = [...new Set(sorted.flatMap((lineup) => lineup.maps?.split(", ").filter(Boolean) ?? []))].sort();
-    return {
-      id: ids.length === 1 ? ids[0] : groupId(ids),
-      exactLineupIds: ids,
-      displayName: memberNames.join(", "),
-      playerCount: memberNames.length,
-      exactLineupCount: ids.length,
-      matchCount: sorted.reduce((total, lineup) => total + lineup.matchCount, 0),
-      maps: maps.join(", ") || null,
-      lastPlayedAt: sorted.reduce<Date | string | null>((latest, lineup) => {
-        if (!lineup.lastPlayedAt) return latest;
-        return !latest || dateTime(lineup.lastPlayedAt) > dateTime(latest) ? lineup.lastPlayedAt : latest;
-      }, null),
-      lastProcessedAt: sorted[0].lastProcessedAt,
-      variantNames: sorted.map((lineup) => lineup.displayName),
-    };
-  }).sort((a, b) => dateTime(b.lastProcessedAt) - dateTime(a.lastProcessedAt));
-}
-
-function dateTime(value: Date | string | null | undefined) {
-  return value ? new Date(value).getTime() : 0;
 }
 
 function faceitCandidateMatchCondition() {
@@ -113,6 +33,22 @@ async function getExactLineups(ids?: string[]): Promise<ExactLineup[]> {
     .innerJoin(player, eq(teamLineupMember.playerId, player.id))
     .where(inArray(teamLineupMember.teamLineupId, lineupIds));
 
+  const candidateRows = await db
+    .select({
+      lineupId: matchTeamLineup.teamLineupId,
+      candidateId: faceitAnalysisCandidate.id,
+      analysisId: faceitAnalysisCandidate.analysisId,
+      sharedPlayerCount: faceitAnalysisCandidate.sharedPlayerCount,
+      sharedPlayers: faceitAnalysisCandidate.sharedPlayersJson,
+      nicknameInMatch: matchPlayer.nicknameInMatch,
+    })
+    .from(matchTeamLineup)
+    .innerJoin(matchTeam, eq(matchTeamLineup.matchTeamId, matchTeam.id))
+    .innerJoin(matchPlayer, eq(matchPlayer.matchTeamId, matchTeam.id))
+    .innerJoin(csMatch, eq(matchTeam.matchId, csMatch.id))
+    .innerJoin(faceitAnalysisCandidate, faceitCandidateMatchCondition())
+    .where(inArray(matchTeamLineup.teamLineupId, lineupIds));
+
   const statsRows = await db
     .select({
       id: teamLineup.id,
@@ -132,12 +68,20 @@ async function getExactLineups(ids?: string[]): Promise<ExactLineup[]> {
   return lineupRows.map((lineup) => {
     const members = memberRows.filter((member) => member.lineupId === lineup.id);
     const stats = statsRows.find((row) => row.id === lineup.id);
+    const candidateLinks = new Map<string, (typeof candidateRows)[number][]>();
+    for (const candidate of candidateRows.filter((row) => row.lineupId === lineup.id)) {
+      candidateLinks.set(candidate.candidateId, [...(candidateLinks.get(candidate.candidateId) ?? []), candidate]);
+    }
+    const analysisIds = [...new Set([...candidateLinks.values()]
+      .filter((rows) => candidateMatchesLineup(rows.map((row) => row.nicknameInMatch), rows[0].sharedPlayers, rows[0].sharedPlayerCount))
+      .map((rows) => rows[0].analysisId))];
     return {
       id: lineup.id,
       displayName: lineup.displayName,
       playerCount: lineup.playerCount,
       memberIds: members.map((member) => member.playerId),
       memberNames: members.map((member) => member.nickname),
+      analysisIds,
       matchCount: stats?.matchCount ?? 0,
       maps: stats?.maps ?? null,
       lastPlayedAt: stats?.lastPlayedAt ?? null,

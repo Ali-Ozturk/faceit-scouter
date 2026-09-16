@@ -7,6 +7,17 @@ let running: Promise<AnalysisResponse> | null = null;
 let runningKey = "";
 type Record = { key: string; until: number; result?: AnalysisResponse; expires?: number };
 
+export async function getAnalysisCooldowns(backend: string) {
+  const normalizedBackend = normalizeBackendUrl(backend);
+  const buckets = [3, 4].map((players) => `${KEY}:${normalizedBackend}:${players}`);
+  const saved = await extensionApi.storage.local.get(buckets);
+  const now = Date.now();
+  return Object.fromEntries(buckets.map((bucket, index) => {
+    const until = (saved[bucket] as Record | undefined)?.until ?? 0;
+    return [index + 3, until > now ? until : 0];
+  }));
+}
+
 export function guardedAnalysis(backend: string, input: BackendAnalysisInput): Promise<AnalysisResponse> {
   const key = JSON.stringify([normalizeBackendUrl(backend), createAnalysisRequest(input)]);
   if (running) return runningKey === key ? running : Promise.reject(new Error("An analysis is already running. Please wait."));

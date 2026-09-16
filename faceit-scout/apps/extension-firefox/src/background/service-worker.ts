@@ -1,5 +1,5 @@
 import { extensionApi } from "../shared/extension-api.js";
-import { guardedAnalysis } from "../api/analysis-gate.js";
+import { getAnalysisCooldowns, guardedAnalysis } from "../api/analysis-gate.js";
 import { demoJobs, normalizeBackendUrl } from "../api/backend.js";
 import { createFaceitMatchroomUrl, extractFaceitMatchId } from "../faceit/match-url.js";
 import { isExtensionMessage } from "../shared/messages.js";
@@ -28,6 +28,14 @@ extensionApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.type === "GET_CURRENT_FACEIT_MATCH") {
     getCurrentFaceitMatch().then(sendResponse).catch(error => sendResponse({ error: errorMessage(error) }));
+    return true;
+  }
+
+  if (message.type === "GET_ANALYSIS_COOLDOWNS") {
+    getSettings()
+      .then((settings) => getAnalysisCooldowns(settings.backendUrl))
+      .then(sendResponse)
+      .catch(error => sendResponse({ error: errorMessage(error) }));
     return true;
   }
 
