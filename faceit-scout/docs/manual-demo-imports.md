@@ -12,7 +12,7 @@ This is the interim workflow until approved FACEIT Downloads API access is avail
 6. Check the match assignment for each file. Filenames containing a selected FACEIT match ID are matched automatically; renamed files require an explicit selection. Files are never assigned by selection order.
 7. Click **Upload / resume**. Keep this tab open while transferring. Each completed file queues immediately, and processing continues on the VPS after the transfer completes.
 
-The key stays in page memory and Authorization headers, never query strings. Reloading the page requires entering it again. This is a shared import key, not per-user authentication: everyone holding it can view, upload to, or cancel pending import reservations. Keep the dashboard behind the existing HTTPS/access-control layer.
+After a successful connection, the key is saved in this browser's local storage for this Scout site. Later visits restore it and load pending matches automatically. **Forget saved key** removes it from this browser; rejected saved keys are cleared when the server returns 401. If browser storage is unavailable, entering the key still works for the current visit. The key is sent in Authorization headers, never query strings. This is a shared import key, not per-user authentication: everyone holding it can view, upload to, or cancel pending import reservations. Keep the dashboard behind the existing HTTPS/access-control layer.
 
 ## Transfer and processing
 

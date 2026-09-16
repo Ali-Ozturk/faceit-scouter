@@ -1,10 +1,11 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Job = { id: string; faceitMatchId: string; status: string; mapName?: string | null; matchPlayedAt?: string | null };
 type Choice = { file: File; jobId: string; progress: number; message: string };
 const CHUNK = 4 * 1024 * 1024;
+const IMPORT_KEY_STORAGE = "faceitScout.importAccessKey";
 const waiting = (job: Job) => ["AWAITING_UPLOAD", "UPLOADING"].includes(job.status);
 
 export function DemoUploader() {
@@ -14,22 +15,59 @@ export function DemoUploader() {
   const [choices, setChoices] = useState<Choice[]>([]);
   const [message, setMessage] = useState("Enter the same import access key as your extension to load pending matches.");
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [storageMessage, setStorageMessage] = useState("");
   const stop = useRef(false);
-  async function api(url: string, options: RequestInit = {}) {
-    const response = await fetch(url, { ...options, headers: { ...options.headers, Authorization: `Bearer ${key.trim()}` }, redirect: "error", signal: AbortSignal.timeout(120000) });
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+    try {
+      const remembered = localStorage.getItem(IMPORT_KEY_STORAGE);
+      if (remembered) {
+        setKey(remembered);
+        setSaved(true);
+        void load(remembered);
+      }
+    } catch { setStorageMessage("Browser storage is unavailable. You can still enter the key for this visit."); }
+  }, []);
+  async function api(url: string, options: RequestInit = {}, accessKey = key.trim()) {
+    const response = await fetch(url, { ...options, headers: { ...options.headers, Authorization: `Bearer ${accessKey}` }, redirect: "error", signal: AbortSignal.timeout(120000) });
     const body = await response.json().catch(() => ({ error: `Upload server returned HTTP ${response.status}.` }));
+    if (response.status === 401) {
+      try {
+        if (localStorage.getItem(IMPORT_KEY_STORAGE) === accessKey) {
+          localStorage.removeItem(IMPORT_KEY_STORAGE);
+          setSaved(false);
+        }
+      } catch { /* The current request still reports its authentication failure. */ }
+    }
     if (!response.ok) throw new Error(body.error ?? "Upload request failed.");
     return body;
   }
-  async function load() {
+  async function load(accessKey = key.trim()) {
+    setLoading(true);
     try {
-      const body = await api("/api/demo-uploads");
+      const body = await api("/api/demo-uploads", {}, accessKey);
       const pending = (body.jobs as Job[]).filter(waiting);
       const selected = new Set(new URLSearchParams(window.location.search).get("uploads")?.split(",") ?? []);
       pending.sort((a,b) => Number(selected.has(b.id)) - Number(selected.has(a.id)));
       setJobs(pending);
+      try {
+        localStorage.setItem(IMPORT_KEY_STORAGE, accessKey);
+        setSaved(true);
+        setStorageMessage("");
+      } catch { setStorageMessage("The key works, but this browser could not save it for next time."); }
       setMessage(pending.length ? "Download demos using FACEIT’s Watch Demo button, then select or drop up to three files here." : "No pending uploads. Select matches in the extension and click Open matches.");
     } catch (e) { setMessage(errorText(e)); }
+    finally { setLoading(false); }
+  }
+  function forgetKey() {
+    try { localStorage.removeItem(IMPORT_KEY_STORAGE); }
+    catch { setStorageMessage("Could not remove the saved key. Clear this site's browser data to forget it."); return; }
+    setSaved(false); setKey(""); setJobs([]); setChoices([]); setStorageMessage("");
+    setMessage("Saved key forgotten. Enter an import access key to load pending matches.");
   }
   function select(files: FileList | null) {
     if (!files || busy) return;
@@ -88,9 +126,11 @@ export function DemoUploader() {
     <h2 className="text-lg font-semibold">Upload your demos</h2>
     <p className="text-sm text-slate-600">Download on FACEIT, then upload the compressed files here. Keep this page open during transfer. Interrupted uploads resume when you select the same files again.</p>
     <div className="flex flex-wrap items-end gap-2">
-      <label className="text-sm">Import access key<input className="ml-2 rounded border p-2" type="password" autoComplete="off" value={key} disabled={busy} onChange={e => { setKey(e.target.value); setJobs([]); setChoices([]); }} /></label>
-      <button className="rounded border px-3 py-2 disabled:opacity-50" disabled={busy || key.trim().length < 24} onClick={() => void load()}>Load pending matches</button>
+      <label className="text-sm">Import access key<input className="ml-2 rounded border p-2" type="password" autoComplete="off" value={key} disabled={busy || loading} onChange={e => { setKey(e.target.value); setJobs([]); setChoices([]); }} /></label>
+      <button className="rounded border px-3 py-2 disabled:opacity-50" disabled={busy || loading || key.trim().length < 24} onClick={() => void load()}>{loading ? "Loading…" : "Load pending matches"}</button>
+      {saved && <button className="rounded border px-3 py-2 disabled:opacity-50" disabled={busy || loading} onClick={forgetKey}>Forget saved key</button>}
     </div>
+    <p className="text-xs text-slate-500">{storageMessage || (saved ? "Key saved in this browser for this Scout site." : "Your key is saved in this browser after a successful connection.")}</p>
     <p role="status" className="text-sm">{message}</p>
     {!!jobs.length && <>
       <div className="rounded border-2 border-dashed p-5" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); select(e.dataTransfer.files); }}>
