@@ -12,9 +12,9 @@ export function normalizeBackendUrl(value: string) {
 
 export type ServerJob = { id: string; faceitMatchId: string; status: string; importStatus?: string; error?: string };
 
-export async function demoJobs(backendUrl: string, key: string, demos?: Array<{ faceitMatchId: string; url: string; requesterNickname?: string; analysisId?: string; matchPlayedAt?: string | null; mapName?: string | null }>): Promise<ServerJob[]> {
+export async function demoJobs(backendUrl: string, key: string, demos?: Array<{ faceitMatchId: string; requesterNickname?: string; analysisId?: string; matchPlayedAt?: string | null; mapName?: string | null }>): Promise<ServerJob[]> {
   if (key.trim().length < 24) throw new Error("Set the import access key from your backend .env (at least 24 characters).");
-  const response = await fetch(`${normalizeBackendUrl(backendUrl)}/api/demo-downloads`, {
+  const response = await fetch(`${normalizeBackendUrl(backendUrl)}/api/demo-uploads`, {
     method: demos ? "POST" : "GET",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key.trim()}` },
     ...(demos ? { body: JSON.stringify({ demos }) } : {}),
@@ -22,7 +22,7 @@ export async function demoJobs(backendUrl: string, key: string, demos?: Array<{ 
     signal: AbortSignal.timeout(15000),
   });
   const body = await response.json().catch(() => {
-    throw new Error(`The backend returned a page instead of the v2 import API (HTTP ${response.status}). Check the Backend URL and run docker compose up -d --build in the project folder.`);
+    throw new Error(`The backend returned a page instead of the manual upload API (HTTP ${response.status}). Check the Backend URL and run docker compose up -d --build in the project folder.`);
   });
   if (!response.ok) throw new Error(body.error || `Import request failed (${response.status}).`);
   if (!body || !Array.isArray(body.jobs)) throw new Error("Unexpected import API response. Update the backend to v2.");

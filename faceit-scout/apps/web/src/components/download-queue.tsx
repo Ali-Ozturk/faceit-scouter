@@ -7,6 +7,7 @@ type Job = {
   requesterNickname: string | null; mapName: string | null;
 };
 const labels: Record<string, string> = {
+  AWAITING_UPLOAD: "Awaiting upload", UPLOADING: "Uploading demo",
   QUEUED: "Waiting for a worker", DOWNLOADING: "Downloading demo", PROCESSING: "Preparing demo",
   DISCOVERED: "Demo received", WAITING_FOR_STABILITY: "Checking download", CLAIMED: "Preparing demo",
   DECOMPRESSING: "Decompressing demo", PARSING: "Parsing match", PERSISTING: "Saving match results",
@@ -27,7 +28,7 @@ export function DownloadQueue({ jobs }: { jobs: Job[] }) {
   }
   return <section className="rounded border bg-white p-4">
     <h2 className="font-semibold">Extension imports · Latest 6</h2>
-    <p className="my-2 text-sm text-slate-600">Up to 9 demos in the queue, with 3 processing at once. Completed demo files are deleted; match results remain available.</p>
+    <p className="my-2 text-sm text-slate-600">Up to 9 pending imports. Each completed upload enters the processing queue immediately. Completed demo files are deleted; match results remain available.</p>
     {!jobs.length && <p className="text-sm">No imports yet. Submit demos from the extension.</p>}
     {jobs.map(job => {
       const stage = job.status === "PROCESSING" ? job.importStatus ?? job.status : job.status;

@@ -1,6 +1,6 @@
 # FACEIT Scout
 
-For v2 extension-to-backend downloads, three-demo queue limits, automatic demo cleanup, and local setup, follow the [v2 local import guide](docs/v2-local-imports.md). The same extension can target a remote HTTPS backend later.
+For manual FACEIT downloads and authenticated, resumable uploads to Scout, follow the [manual demo import guide](docs/manual-demo-imports.md). Chrome and Firefox both support the same local or remote HTTPS workflow.
 
 For isolated VPS performance testing of the production parser and PostgreSQL persistence, see the [benchmark README](benchmark/README.md) and [VPS benchmark guide](docs/vps-benchmark.md).
 
@@ -10,9 +10,9 @@ FACEIT Scout runs three services:
 
 - `postgres`: local PostgreSQL database.
 - `web`: Next.js dashboard and API.
-- `processor`: Python worker that watches demo folders, decompresses `.dem.zst`, parses demos, and saves results.
+- `processor`: Python worker that watches demo folders, decompresses `.dem.zst` and `.dem.gz`, parses demos, and saves results.
 
-Browser extensions are available for demo discovery/download:
+Browser extensions are available for match discovery and manual demo imports:
 
 - `apps/extension`: Chrome / Chromium extension.
 - `apps/extension-firefox`: Firefox extension.

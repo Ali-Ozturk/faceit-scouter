@@ -1,4 +1,4 @@
-"""Durable URL imports. FACEIT cookies stay in the browser."""
+"""Durable manual file imports. Remote URL acquisition is disabled."""
 import asyncio
 import http.client
 import ipaddress
@@ -91,14 +91,15 @@ def update_job(factory, job_id, **fields):
 
 async def handle_job(job, settings, imports, factory, executor, name):
     job_id = job['id']
+    if job['signed_url']:
+        raise DownloadError('URL imports are disabled. Download manually on FACEIT and upload the file in Scout.')
     root = settings.temporary_directory / 'url-imports'
     root.mkdir(parents=True, exist_ok=True)
     filename = job['file_name']
     if not filename:
-        parts = validate_url(job['signed_url'], settings.demo_download_hosts)
-        suffix = '.dem.zst' if parts.path.lower().endswith('.zst') else '.dem'
-        filename = f"{job['faceit_match_id']}_{job_id}{suffix}"
-        update_job(factory, job_id, file_name=filename)
+        raise DownloadError('No completed upload is attached to this job.')
+    if Path(filename).name != filename:
+        raise DownloadError('Invalid upload filename.')
     path = root / filename
     with factory() as session:
         imported = session.execute(text('SELECT id,status,current_path FROM imported_demo WHERE original_path=:path ORDER BY created_at DESC LIMIT 1'), {'path': str(path)}).mappings().first()
@@ -118,13 +119,11 @@ async def handle_job(job, settings, imports, factory, executor, name):
                 raise DownloadError('Unexpected recovery path.')
             current.replace(path)
     if not path.exists():
-        if not job['signed_url']:
-            raise DownloadError('Downloaded file is missing. Resubmit this demo from the extension.')
-        update_job(factory, job_id, status='DOWNLOADING')
-        await asyncio.to_thread(download_demo, job['signed_url'], path, settings)
+        raise DownloadError('Uploaded file is missing. Open the match again and upload its demo.')
+    (root / f'{job_id}.json').unlink(missing_ok=True)
     imported_row = imports.create_or_get(path)
     update_job(factory, job_id, status='PROCESSING', signed_url=None, import_id=imported_row.id)
-    await process_file(path, settings, imports, factory, executor, name)
+    await process_file(path, settings, imports, factory, executor, name, expected_map=job.get('map_name'))
     with factory() as session:
         status = session.execute(text('SELECT status FROM imported_demo WHERE id=:id'), {'id': imported_row.id}).scalar_one()
     update_job(factory, job_id, status='COMPLETED' if status in ('COMPLETED', 'DUPLICATE') else 'FAILED',
@@ -154,7 +153,7 @@ async def download_worker(name, settings, imports, factory, executor, slots):
                                     await handle_job(job, settings, imports, factory, executor, name)
                                 except Exception as exc:
                                     # Only our controlled errors are safe to display; library errors can contain URLs.
-                                    error = str(exc) if isinstance(exc, DownloadError) else 'Download/import failed. Check connectivity and request a fresh URL.'
+                                    error = str(exc) if isinstance(exc, DownloadError) else 'Demo import failed. Check the file and upload it again.'
                                     update_job(factory, job_id, status='FAILED', error=error, signed_url=None)
                                     logger.warning('url_import_failed', job_id=str(job_id), error_type=type(exc).__name__)
                         finally:

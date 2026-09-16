@@ -113,8 +113,9 @@ export async function discoverFaceitMatches(
   const detailConcurrency = options.detailConcurrency ?? 5;
   const historyTo = options.now ?? new Date();
   const historyFrom = subtractMonths(historyTo, historyWindowMonths);
-  const selectedMap = normalizeMapName(input.selectedMap);
   const currentMatch = await api.getMatch(input.faceitMatchId);
+  const selectedMap = normalizeMapName(input.selectedMap) ?? extractMap(currentMatch);
+  if (!selectedMap) throw new Error("FACEIT has no final map yet. Choose a map in Scout and analyze again.");
   const opponentTeam = getOpposingTeam(currentMatch, input.requestingPlayerFaceitId);
   const opponentIds = new Set(opponentTeam.players.map((player) => player.faceitPlayerId.toLowerCase()));
   const warnings: string[] = [];

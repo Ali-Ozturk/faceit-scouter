@@ -7,11 +7,8 @@ export type ExtensionMessage =
   | { type: "CURRENT_FACEIT_MATCH"; payload: CurrentFaceitMatch }
   | { type: "CREATE_ANALYSIS"; input: BackendAnalysisInput }
   | { type: "ANALYSIS_CREATED"; payload: AnalysisResponse }
-  | { type: "START_DOWNLOADS"; candidates: AnalysisCandidate[]; includeProcessed: boolean; requesterNickname?: string; analysisId?: string }
+  | { type: "OPEN_SELECTED_MATCHES"; candidates: AnalysisCandidate[]; includeProcessed: boolean; requesterNickname?: string; analysisId?: string }
   | { type: "DOWNLOAD_PROGRESS"; payload: DownloadStatus[] }
-  | { type: "GET_FACEIT_DEMO_URL"; matchId: string }
-  | { type: "TRIGGER_FACEIT_DEMO"; matchId: string }
-  | { type: "FACEIT_DEMO_RESULT"; matchId: string; demoUrl?: string; error?: string }
   | { type: "OPEN_MATCHROOM"; url: string }
   | { type: "ERROR"; message: string };
 
@@ -25,11 +22,8 @@ export function isExtensionMessage(value: unknown): value is ExtensionMessage {
     "CURRENT_FACEIT_MATCH",
     "CREATE_ANALYSIS",
     "ANALYSIS_CREATED",
-    "START_DOWNLOADS",
+    "OPEN_SELECTED_MATCHES",
     "DOWNLOAD_PROGRESS",
-    "GET_FACEIT_DEMO_URL",
-    "TRIGGER_FACEIT_DEMO",
-    "FACEIT_DEMO_RESULT",
     "OPEN_MATCHROOM",
     "ERROR",
   ].includes(record.type);

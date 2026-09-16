@@ -7,18 +7,21 @@
 3. Build Firefox: `npm --prefix apps/extension-firefox run build`.
 4. Reload the extension in your browser's extension manager and reload open FACEIT tabs. Load the built `dist` directory (Firefox: `dist/manifest.json`), not the source directory.
 5. Open **Settings**, enter your backend URL, import key and FACEIT nickname or player ID, and click **Save connection**. Accept the backend host permission if asked. Draft values are saved as you type, so reopening the popup retains them.
-6. Open a FACEIT matchroom. The final map is detected automatically while the popup is open. When multiple veto maps are visible without one identifiable selection, Scout waits. Click **Analyze** once the map appears.
-7. The newest three available, unprocessed demos are selected automatically. Adjust the checkboxes or use **Unselect all**. **Import selected** remains visible at the bottom; only the history list scrolls.
+6. Open a FACEIT matchroom. Click **Analyze** to read the map from the Data API, or choose a map in the dropdown.
+7. The newest three available, unprocessed demos are selected automatically. Adjust the checkboxes or use **Unselect all**. **Open matches** remains visible at the bottom; only the history list scrolls.
+8. Download each demo manually using FACEIT's button, then upload the files on Scout's Imports page using the import key. See the [manual import guide](manual-demo-imports.md).
+
+Building files alone does not restart a loaded extension. If Scout reports a missing background reply, reload it in the extension manager, close the popup, and reopen it.
 
 ## Behavior
 
-- The popup is 460 × 590 pixels, with compact settings behind a button. All downloads go to the chosen local or remote backend. There are no browser-download or subdirectory settings.
+- The popup is 460 × 590 pixels, with compact settings behind a button. Manually downloaded demos are uploaded to the chosen local or remote backend. No folder setup is required.
 - Analyze is disabled while running and for six seconds afterwards. Four-player analysis and three-player fallback have separate cooldowns, so the first fallback is available immediately after an empty four-player result. Identical in-flight requests share one result; successful identical requests reuse a 60-second cache. These are extension protections, not a server-wide rate limit.
 - Results, selections, messages and cooldowns are retained per match and backend/player connection. Moving to another browser tab does not clear the last match. Returning to another FACEIT match restores its stored state. An analysis finishing after the popup closes is saved by the background worker.
-- Each submission still contains at most three demos, but the backend accepts nine outstanding demos in total (queued plus downloading/processing). A single production processor runs at most three jobs at once. Benchmark mode retains its configurable concurrency.
-- Map detection inspects the visible FACEIT page every two seconds while the popup is open. It makes no recurring API calls and never automatically analyzes when voting ends. FACEIT can change its page structure; a map that cannot be identified safely remains in the waiting state.
+- Each submission contains at most three demos, and the backend accepts nine outstanding imports in total (awaiting upload, uploading, queued or processing). A single production processor runs at most three jobs at once. Benchmark mode retains its configurable concurrency.
+- Match detection reads only the browser tab URL. The extension never injects into FACEIT or reads its DOM. Map lookup uses the Data API during Analyze, with a manual dropdown fallback.
 - The three-player fallback is shown only for an analyzed match with no four-player results. Processed and active imports cannot be selected again.
-- Extension import cards show the latest six requests, their processing stages, request time, match time, map and requester. Dates use the viewer's local time. Nicknames are saved with the original FACEIT analysis; submissions include the analysis reference plus display metadata, so the server can recover missing extension fields.
+- Extension import cards show the latest six requests, their processing stages, request time, match time, map and requester. Dates use the viewer's local time. Upload reservations include display metadata from the selected discovery candidates.
 - Existing match dates and map names are recovered from parsed matches or stored candidates where possible. A requester never recorded cannot be reliably reconstructed and remains “Player not recorded.” Rebuild the backend and reload the newly built extension before testing new imports; an older deployed API can silently discard new metadata fields.
 - Status badges sit beside the map/player text. Vertically centered dots use blue for queued jobs, orange for active work, green for completed jobs and red for failures.
 - Team maps are illustrated cards with scene images, map logos and a “View analysis” action. The individual-match Open links are removed, and the table is titled “Matches analyzed.” Images are served locally and resized by Next.js image optimization.

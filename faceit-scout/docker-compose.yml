@@ -22,10 +22,13 @@ services:
       DATABASE_URL: postgresql://faceit_scout:faceit_scout@postgres:5432/faceit_scout
       FACEIT_API_TOKEN: ${FACEIT_API_TOKEN:-}
       SCOUT_IMPORT_KEY: ${SCOUT_IMPORT_KEY:-}
+      DEMO_UPLOAD_DIRECTORY: /data/runtime/temporary/url-imports
       DEMO_DOWNLOAD_HOSTS: ${DEMO_DOWNLOAD_HOSTS:-demos-europe-central-faceit-cdn.s3.eu-central-003.backblazeb2.com,demos-us-east-faceit-cdn.s3.us-east-005.backblazeb2.com}
       OPENING_TENDENCY_PREVIEWS_ENABLED: ${OPENING_TENDENCY_PREVIEWS_ENABLED:-false}
     ports:
       - "127.0.0.1:${WEB_HOST_PORT:-3101}:3000"
+    volumes:
+      - downloads_data:/data/runtime
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 5s

@@ -5,6 +5,12 @@ const allies = players(["a1", "a2", "a3", "a4", "a5"]);
 const opponents = players(["o1", "o2", "o3", "o4", "o5"]);
 
 describe("FACEIT discovery", () => {
+  it("requests a manual map when the Data API has no selection", async () => {
+    const current = { ...match("current", allies, opponents), voting: {} };
+    await expect(discoverFaceitMatches(api({ matches: { current }, histories: {} }), {
+      faceitMatchId: "current", requestingPlayerFaceitId: "a1",
+    })).rejects.toThrow("Choose a map");
+  });
   it("identifies the opposing faction", () => {
     const team = getOpposingTeam(match("current", allies, opponents), "a1");
     expect(team.faction).toBe("faction2");
@@ -14,7 +20,7 @@ describe("FACEIT discovery", () => {
   it("finds matches shared by at least four teammates", async () => {
     const result = await discoverFaceitMatches(api({
       matches: {
-        current: match("current", allies, opponents),
+        current: match("current", allies, opponents, "de_inferno"),
         shared4: match("shared4", players(["x1", "x2", "x3", "x4", "x5"]), players(["o1", "o2", "o3", "o4", "z1"]), "de_inferno"),
       },
       histories: historyForOpponents({ o1: ["shared4"], o2: ["shared4"], o3: ["shared4"], o4: ["shared4"] }),
@@ -28,7 +34,7 @@ describe("FACEIT discovery", () => {
   it("pages player history beyond the first 100 matches inside the history window", async () => {
     const result = await discoverFaceitMatches(api({
       matches: {
-        current: match("current", allies, opponents),
+        current: match("current", allies, opponents, "de_inferno"),
         shared4: match("shared4", players(["x1", "x2", "x3", "x4", "x5"]), players(["o1", "o2", "o3", "o4", "z1"]), "de_inferno"),
       },
       histories: {
@@ -46,7 +52,7 @@ describe("FACEIT discovery", () => {
   it("only includes three-player premades when requested", async () => {
     const faceitApi = api({
       matches: {
-        current: match("current", allies, opponents),
+        current: match("current", allies, opponents, "de_inferno"),
         shared3: match("shared3", players(["x1", "x2", "x3", "x4", "x5"]), players(["o1", "o2", "o3", "z1", "z2"]), "de_inferno"),
       },
       histories: historyForOpponents({ o1: ["shared3"], o2: ["shared3"], o3: ["shared3"] }),
@@ -151,8 +157,8 @@ describe("FACEIT discovery", () => {
   it("continues when one player history request fails", async () => {
     const result = await discoverFaceitMatches(api({
       matches: {
-        current: match("current", allies, opponents),
-        shared4: match("shared4", players(["x1", "x2", "x3", "x4", "x5"]), players(["o1", "o2", "o3", "o4", "z1"])),
+        current: match("current", allies, opponents, "de_inferno"),
+        shared4: match("shared4", players(["x1", "x2", "x3", "x4", "x5"]), players(["o1", "o2", "o3", "o4", "z1"]), "de_inferno"),
       },
       histories: historyForOpponents({ o1: ["shared4"], o2: ["shared4"], o3: ["shared4"], o4: ["shared4"] }),
       failingHistoryPlayers: new Set(["o5"]),
