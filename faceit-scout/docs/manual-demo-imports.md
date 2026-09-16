@@ -43,6 +43,8 @@ The web and processor services share the existing `downloads_data` volume at `/d
 
 Allow at least 4 MiB request bodies through the VPS reverse proxy (for nginx, `client_max_body_size 5m;`). Each chunk has a two-minute client timeout. The Node route buffers at most one 4 MiB chunk per request, not the entire demo. No FACEIT credentials are needed for uploads or demo parsing; Data API discovery still needs the server-side API token.
 
+On a small VPS, set `PROCESSOR_CONCURRENCY=1` in `.env`. Completed demos can begin CPU- and memory-intensive parsing while remaining files are still uploading; the lower setting keeps the web upload service responsive. The browser automatically retries transient upload failures and reconciles the saved server offset, so an interrupted chunk resumes without a page refresh.
+
 `POST /api/demo-downloads` returns **410** to authenticated older extensions. The worker also rejects old queued jobs containing signed URLs and clears their URLs through its failure path. Completed historical job records remain intact. Automated FACEIT acquisition cannot be re-enabled with an environment flag; a future approved Downloads API integration requires an explicit implementation.
 
 ## Retention review still outstanding
