@@ -45,7 +45,7 @@ export async function sendChunkWithRecovery(options: {
       return await options.send();
     } catch (error) {
       const state = await options.inspect().catch(() => null);
-      if (state && ["QUEUED", "PROCESSING", "COMPLETED"].includes(state.status)) {
+      if (state && ["WAITING_FOR_BATCH", "QUEUED", "PROCESSING", "COMPLETED"].includes(state.status)) {
         return { complete: true, offset: options.end, status: state.status };
       }
       if (state && Number.isSafeInteger(state.offset) && state.offset! > options.offset) {

@@ -10,7 +10,7 @@ This is the interim workflow until approved FACEIT Downloads API access is avail
 4. Click FACEIT's own **Watch Demo** button in each matchroom. Scout does not click it, read page content, intercept downloads, or obtain signed demo URLs.
 5. On Scout's Imports page, enter the same **import access key** and click **Load pending matches**. Select or drag the downloaded `.dem`, `.dem.zst` or `.dem.gz` files directly from Downloads. No local script or file move is necessary.
 6. Check the match assignment for each file. Filenames containing a selected FACEIT match ID are matched automatically; renamed files require an explicit selection. Files are never assigned by selection order.
-7. Click **Upload / resume**. Up to three files transfer simultaneously, each with its own progress and resumable chunks. Keep this tab open while transferring. A failed file does not stop the other uploads. **Pause uploads** lets each active chunk finish before pausing unfinished files. Each completed file queues immediately, and processing continues on the VPS after the transfer completes.
+7. Click **Upload / resume**. Up to three files transfer simultaneously, each with its own progress and resumable chunks. Keep this tab open while transferring. A failed file does not stop the other uploads. **Pause uploads** lets each active chunk finish before pausing unfinished files. Completed files stay staged until every reservation created with them has finished or been cancelled, then the batch enters processing together.
 
 After a successful connection, the key is saved in this browser's local storage for this Scout site. Later visits restore it and load pending matches automatically. **Forget saved key** removes it from this browser; rejected saved keys are cleared when the server returns 401. If browser storage is unavailable, entering the key still works for the current visit. The key is sent in Authorization headers, never query strings. This is a shared import key, not per-user authentication: everyone holding it can view, upload to, or cancel pending import reservations. Keep the dashboard behind the existing HTTPS/access-control layer.
 
@@ -21,7 +21,7 @@ After a successful connection, the key is saved in this browser's local storage 
 - Partial bytes stay in staging and never enter the worker queue. Interrupted transfers resume at the server's offset when the same file is selected again. A bounded fingerprint sample, size and original filename guard against accidentally mixing files; the processor calculates the full SHA-256 for duplicate detection.
 - Closing or pausing a transfer preserves the partial upload. Pending uploads reserve queue slots until completed or cancelled; use **Pending matches** to cancel unused reservations and delete their staged bytes.
 - Nine outstanding reservations/uploads/processing jobs are admitted across the backend, under a PostgreSQL advisory lock. Reopening an active match reuses its job. Worker concurrency remains configurable and capped at three for the durable queue.
-- Completed files are atomically renamed before queue admission. Resume recovers a crash between the rename and database commit. Workers recover interrupted processing using the existing import record.
+- Completed files are atomically renamed before queue admission. Files reserved together wait for every upload in that batch to finish or be cancelled, preventing parsing from starving active transfers. Resume recovers a crash between the rename and database commit. Workers recover interrupted processing using the existing import record.
 - Filenames with a conflicting match ID are rejected; the processor also rejects a known map mismatch or a checksum already associated with another match. A renamed demo does not necessarily contain a reliable FACEIT ID: the user must verify its assignment.
 - Successful source/scratch cleanup and parsed-result persistence continue as before. Failed parser inputs remain in the failed directory for investigation.
 
@@ -37,13 +37,13 @@ npm --prefix apps/extension-firefox ci
 npm --prefix apps/extension-firefox run build
 ```
 
-Update **both** backend services and both extensions. Existing parsed results are retained; no schema change is needed. Reload the extensions and existing FACEIT tabs to unload any old content scripts.
+Update **both** backend services and both extensions. The web startup migration adds the nullable upload batch column; existing parsed results are retained. Reload the extensions and existing FACEIT tabs to unload any old content scripts.
 
 The web and processor services share the existing `downloads_data` volume at `/data/runtime`. The web's `DEMO_UPLOAD_DIRECTORY` is `/data/runtime/temporary/url-imports`, matching the processor's `TEMPORARY_DIRECTORY` plus `/url-imports`. For a native setup, explicitly point both to the same absolute directory. The legacy `URL_IMPORTS_ENABLED=true` setting still enables the durable file-import worker; it no longer permits URL downloads.
 
 Allow at least 4 MiB request bodies through the VPS reverse proxy (for nginx, `client_max_body_size 5m;`). Each chunk has a two-minute client timeout. The Node route buffers at most one 4 MiB chunk per request, not the entire demo. No FACEIT credentials are needed for uploads or demo parsing; Data API discovery still needs the server-side API token.
 
-On a small VPS, set `PROCESSOR_CONCURRENCY=1` in `.env`. Completed demos can begin CPU- and memory-intensive parsing while remaining files are still uploading; the lower setting keeps the web upload service responsive. The browser automatically retries transient upload failures and reconciles the saved server offset, so an interrupted chunk resumes without a page refresh.
+On a small VPS, set `PROCESSOR_CONCURRENCY=1` in `.env`. Batch admission keeps CPU- and memory-intensive parsing from starting while sibling files are still uploading, and single-worker processing limits the peak load after transfer. The browser automatically retries transient upload failures and reconciles the saved server offset, so an interrupted chunk resumes without a page refresh.
 
 `POST /api/demo-downloads` returns **410** to authenticated older extensions. The worker also rejects old queued jobs containing signed URLs and clears their URLs through its failure path. Completed historical job records remain intact. Automated FACEIT acquisition cannot be re-enabled with an environment flag; a future approved Downloads API integration requires an explicit implementation.
 

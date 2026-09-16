@@ -3,7 +3,7 @@ import path from "node:path";
 import { z } from "zod";
 
 export const MATCH_ID = /^1-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const ACTIVE_UPLOADS = ["AWAITING_UPLOAD", "UPLOADING", "QUEUED", "DOWNLOADING", "PROCESSING"];
+export const ACTIVE_UPLOADS = ["AWAITING_UPLOAD", "UPLOADING", "WAITING_FOR_BATCH", "QUEUED", "DOWNLOADING", "PROCESSING"];
 export const MAX_UPLOAD_BYTES = 2_000_000_000;
 export const CHUNK_BYTES = 4 * 1024 * 1024;
 export const uploadBatch = z.object({ demos: z.array(z.object({

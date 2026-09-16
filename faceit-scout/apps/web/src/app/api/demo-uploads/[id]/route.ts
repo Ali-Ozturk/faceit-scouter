@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { demoDownload } from "@/db/schema";
 import { authorizeDemoRequest } from "@/lib/demo-downloads";
 import { appendUpload, CHUNK_BYTES, limitedBody, recoverUpload, removeUpload, UploadError, uploadOffset } from "@/lib/demo-uploads";
+import { uploadBatchIsReady } from "@/lib/upload-batches";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ id: string }> };
@@ -20,32 +21,64 @@ async function handle(request: Request, context: Context, action: "GET" | "PUT" 
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`);
       const [job] = await tx.select().from(demoDownload).where(eq(demoDownload.id, id));
       if (!job) throw new UploadError("Upload not found.", 404);
+      let batchLocked = false;
+      async function lockBatch() {
+        if (job.uploadBatchId && !batchLocked) {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${job.uploadBatchId}, 0))`);
+          batchLocked = true;
+        }
+      }
+
+      async function releaseBatchIfReady() {
+        if (!job.uploadBatchId) {
+          await tx.update(demoDownload).set({ status: "QUEUED", updatedAt: new Date() })
+            .where(and(eq(demoDownload.id, id), eq(demoDownload.status, "WAITING_FOR_BATCH")));
+          return "QUEUED";
+        }
+        const members = await tx.select({ status: demoDownload.status }).from(demoDownload)
+          .where(eq(demoDownload.uploadBatchId, job.uploadBatchId));
+        if (!uploadBatchIsReady(members.map(member => member.status))) return "WAITING_FOR_BATCH";
+        await tx.update(demoDownload).set({ status: "QUEUED", updatedAt: new Date() })
+          .where(and(eq(demoDownload.uploadBatchId, job.uploadBatchId), eq(demoDownload.status, "WAITING_FOR_BATCH")));
+        return "QUEUED";
+      }
+
+      async function stageCompleted(filename: string) {
+        await lockBatch();
+        await tx.update(demoDownload).set({ fileName: filename, status: "WAITING_FOR_BATCH", updatedAt: new Date() })
+          .where(eq(demoDownload.id, id));
+        return releaseBatchIfReady();
+      }
+
       if (action === "GET") {
         if (["AWAITING_UPLOAD", "UPLOADING"].includes(job.status)) {
           const filename = await recoverUpload(id, job.faceitMatchId);
           if (filename) {
-            await tx.update(demoDownload).set({ fileName: filename, status: "QUEUED", updatedAt: new Date() }).where(eq(demoDownload.id, id));
-            return { status: "QUEUED", complete: true };
+            return { status: await stageCompleted(filename), complete: true };
           }
         }
         return { status: job.status, offset: await uploadOffset(id) };
       }
-      if (!["AWAITING_UPLOAD", "UPLOADING"].includes(job.status)) {
+      if (!["AWAITING_UPLOAD", "UPLOADING", "WAITING_FOR_BATCH"].includes(job.status)) {
         if (action === "PUT" && ["QUEUED", "PROCESSING", "COMPLETED"].includes(job.status)) return { complete: true, status: job.status };
         throw new UploadError("This upload is no longer waiting for a file.", 409);
       }
       if (action === "DELETE") {
+        await lockBatch();
         // Also recover cancellation after a crash before fileName was committed,
         // or while the metadata journal was being written.
         for (const suffix of [".dem", ".dem.zst", ".dem.gz"]) {
           await removeUpload(id, `${job.faceitMatchId}_${id}${suffix}`);
         }
         await tx.update(demoDownload).set({ status: "FAILED", error: "Upload cancelled. Open the match again to create a new upload.", updatedAt: new Date() }).where(eq(demoDownload.id, id));
+        await releaseBatchIfReady();
         return { cancelled: true };
       }
+      if (job.status === "WAITING_FOR_BATCH") return { complete: true, status: job.status };
       const uploaded = await appendUpload(id, job.faceitMatchId, request, chunk!);
-      await tx.update(demoDownload).set({ fileName: uploaded.filename, status: uploaded.complete ? "QUEUED" : "UPLOADING", updatedAt: new Date() }).where(eq(demoDownload.id, id));
-      return uploaded;
+      if (uploaded.complete) return { ...uploaded, status: await stageCompleted(uploaded.filename) };
+      await tx.update(demoDownload).set({ fileName: uploaded.filename, status: "UPLOADING", updatedAt: new Date() }).where(eq(demoDownload.id, id));
+      return { ...uploaded, status: "UPLOADING" };
     });
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
