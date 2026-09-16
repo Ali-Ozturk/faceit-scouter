@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { retryUploadRequest, sendChunkWithRecovery, UploadRequestError } from "@/lib/resumable-upload";
 
 type Job = { id: string; faceitMatchId: string; status: string; mapName?: string | null; matchPlayedAt?: string | null };
 type Choice = { file: File; jobId: string; progress: number; message: string };
@@ -43,7 +44,7 @@ export function DemoUploader() {
         }
       } catch { /* The current request still reports its authentication failure. */ }
     }
-    if (!response.ok) throw new Error(body.error ?? "Upload request failed.");
+    if (!response.ok) throw new UploadRequestError(body.error ?? "Upload request failed.", response.status);
     return body;
   }
   async function load(accessKey = key.trim()) {
@@ -95,17 +96,26 @@ export function DemoUploader() {
           // Bounded identity sample prevents accidentally resuming a different local file.
           const sample = await new Blob([file.slice(0,65536), file.slice(Math.max(0,file.size-65536))]).arrayBuffer();
           const fingerprint = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", sample))).map(b => b.toString(16).padStart(2,"0")).join("");
-          const state = await api(`/api/demo-uploads/${jobId}`);
+          const state = await retryUploadRequest({ request: () => api(`/api/demo-uploads/${jobId}`),
+            onRetry: attempt => patch(index, { message: `VPS temporarily unavailable. Retrying connection (${attempt}/4)…` }),
+          });
           if (["QUEUED", "PROCESSING", "COMPLETED"].includes(state.status)) { patch(index, { progress: 100, message: "Already received by server." }); return; }
           if (!["AWAITING_UPLOAD", "UPLOADING"].includes(state.status)) throw new Error("This upload was cancelled or failed. Open the match again in the extension.");
           let offset = state.offset as number;
           while (offset < file.size && !stop.current) {
             const end = Math.min(offset + CHUNK, file.size);
-            const result = await api(`/api/demo-uploads/${jobId}`, { method: "PUT", body: file.slice(offset,end), headers: {
-              "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name),
-              "X-File-Size": String(file.size), "X-File-Fingerprint": fingerprint, "X-Upload-Offset": String(offset),
-            } });
-            offset = result.complete ? file.size : result.offset;
+            const chunkOffset = offset;
+            const result = await sendChunkWithRecovery({ offset: chunkOffset, end,
+              send: () => api(`/api/demo-uploads/${jobId}`, { method: "PUT", body: file.slice(chunkOffset,end), headers: {
+                "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name),
+                "X-File-Size": String(file.size), "X-File-Fingerprint": fingerprint, "X-Upload-Offset": String(chunkOffset),
+              } }),
+              inspect: () => api(`/api/demo-uploads/${jobId}`),
+              onRetry: attempt => patch(index, { message: `VPS temporarily unavailable. Retrying chunk (${attempt}/4)…` }),
+            });
+            const nextOffset = result.complete ? file.size : result.offset;
+            if (!Number.isSafeInteger(nextOffset) || nextOffset! <= chunkOffset || nextOffset! > file.size) throw new Error("Upload server returned an invalid resume offset.");
+            offset = nextOffset!;
             patch(index, { progress: Math.round(offset/file.size*100), message: offset === file.size ? "Received. Queued for processing." : "Uploading…" });
           }
           if (stop.current && offset < file.size) patch(index, { message: "Paused. Click Upload / resume to continue." });
