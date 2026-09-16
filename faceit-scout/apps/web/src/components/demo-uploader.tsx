@@ -7,7 +7,7 @@ type Job = { id: string; faceitMatchId: string; status: string; mapName?: string
 type Choice = { file: File; jobId: string; progress: number; message: string };
 const CHUNK = 4 * 1024 * 1024;
 const IMPORT_KEY_STORAGE = "faceitScout.importAccessKey";
-const waiting = (job: Job) => ["AWAITING_UPLOAD", "UPLOADING"].includes(job.status);
+const waiting = (job: Job) => ["AWAITING_UPLOAD", "UPLOADING", "WAITING_FOR_BATCH"].includes(job.status);
 
 export function DemoUploader() {
   const router = useRouter();
@@ -99,7 +99,7 @@ export function DemoUploader() {
           const state = await retryUploadRequest({ request: () => api(`/api/demo-uploads/${jobId}`),
             onRetry: attempt => patch(index, { message: `VPS temporarily unavailable. Retrying connection (${attempt}/4)…` }),
           });
-          if (["QUEUED", "PROCESSING", "COMPLETED"].includes(state.status)) { patch(index, { progress: 100, message: "Already received by server." }); return; }
+          if (["WAITING_FOR_BATCH", "QUEUED", "PROCESSING", "COMPLETED"].includes(state.status)) { patch(index, { progress: 100, message: state.status === "WAITING_FOR_BATCH" ? "Received. Waiting for the other selected demos." : "Already received by server." }); return; }
           if (!["AWAITING_UPLOAD", "UPLOADING"].includes(state.status)) throw new Error("This upload was cancelled or failed. Open the match again in the extension.");
           let offset = state.offset as number;
           while (offset < file.size && !stop.current) {
@@ -116,13 +116,13 @@ export function DemoUploader() {
             const nextOffset = result.complete ? file.size : result.offset;
             if (!Number.isSafeInteger(nextOffset) || nextOffset! <= chunkOffset || nextOffset! > file.size) throw new Error("Upload server returned an invalid resume offset.");
             offset = nextOffset!;
-            patch(index, { progress: Math.round(offset/file.size*100), message: offset === file.size ? "Received. Queued for processing." : "Uploading…" });
+            patch(index, { progress: Math.round(offset/file.size*100), message: offset === file.size ? (result.status === "WAITING_FOR_BATCH" ? "Received. Waiting for the other selected demos." : "Received. Queued for processing.") : "Uploading…" });
           }
           if (stop.current && offset < file.size) patch(index, { message: "Paused. Click Upload / resume to continue." });
         } catch (e) { patch(index, { message: errorText(e) + " Select the same file and retry to resume." }); }
       }));
       router.refresh();
-      setMessage(stop.current ? "Uploads stopped after their current chunks. Completed files continue processing on the server." : "Transfers finished. Check each file’s status below; processing continues on the server.");
+      setMessage(stop.current ? "Uploads stopped after their current chunks. Completed files stay staged until the remaining uploads finish or are cancelled." : "Transfers stopped. Check each file’s status below; completed files process after the remaining reservations finish or are cancelled.");
     } finally { setBusy(false); }
   }
   async function cancel(job: Job) {

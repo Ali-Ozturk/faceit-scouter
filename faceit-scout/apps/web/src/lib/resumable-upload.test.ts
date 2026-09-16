@@ -30,6 +30,14 @@ it("uses the server offset when a response was lost after the chunk was saved", 
   expect(send).toHaveBeenCalledTimes(1);
 });
 
+it("recognizes a completed upload staged behind its batch when the final response is lost", async () => {
+  const send = vi.fn().mockRejectedValue(new TypeError("network interrupted"));
+
+  await expect(sendChunkWithRecovery({ offset: 10, end: 20, send, inspect: async () => ({ status: "WAITING_FOR_BATCH", offset: 0 }) }))
+    .resolves.toEqual({ complete: true, offset: 20, status: "WAITING_FOR_BATCH" });
+  expect(send).toHaveBeenCalledTimes(1);
+});
+
 it("does not retry permanent validation failures", async () => {
   const send = vi.fn().mockRejectedValue(new UploadRequestError("Wrong file", 400));
 

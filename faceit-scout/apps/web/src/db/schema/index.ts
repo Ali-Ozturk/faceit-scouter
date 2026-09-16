@@ -62,6 +62,7 @@ export const importStageLog = pgTable("import_stage_log", {
 
 export const demoDownload = pgTable("demo_download", {
   id: uuid("id").defaultRandom().primaryKey(),
+  uploadBatchId: uuid("upload_batch_id"),
   faceitMatchId: text("faceit_match_id").notNull(),
   signedUrl: text("signed_url"),
   requesterNickname: text("requester_nickname"),

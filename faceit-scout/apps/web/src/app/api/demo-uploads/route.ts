@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { demoDownload } from "@/db/schema";
@@ -21,8 +22,9 @@ export async function POST(request: Request) {
       await tx.execute(sql`select pg_advisory_xact_lock(73190421)`);
       const active = await tx.select().from(demoDownload).where(inArray(demoDownload.status, ACTIVE_UPLOADS));
       if (!hasQueueCapacity(active.map(j => j.faceitMatchId), demos.map(d => d.faceitMatchId))) throw new UploadError("Nine imports are pending. Complete or cancel an upload first.", 409);
+      const uploadBatchId = randomUUID();
       for (const demo of demos.filter(d => !active.some(a => a.faceitMatchId === d.faceitMatchId))) {
-        await tx.insert(demoDownload).values({ faceitMatchId: demo.faceitMatchId, status: "AWAITING_UPLOAD",
+        await tx.insert(demoDownload).values({ faceitMatchId: demo.faceitMatchId, uploadBatchId, status: "AWAITING_UPLOAD",
           requesterNickname: demo.requesterNickname, mapName: demo.mapName,
           matchPlayedAt: demo.matchPlayedAt ? new Date(demo.matchPlayedAt) : null });
       }
