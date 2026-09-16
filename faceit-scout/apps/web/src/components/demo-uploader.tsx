@@ -86,16 +86,17 @@ export function DemoUploader() {
       setMessage("Assign each file to a different selected match."); return;
     }
     stop.current = false; setBusy(true);
+    setMessage("Uploading selected demos simultaneously. Keep this page open during transfer.");
     try {
-      for (let index = 0; index < choices.length && !stop.current; index++) {
-        const { file, jobId } = choices[index];
+      await Promise.all(choices.map(async ({ file, jobId }, index) => {
         try {
+          patch(index, { message: "Preparing upload…" });
           if (!/\.dem(?:\.zst|\.gz)?$/i.test(file.name) || file.size < 8 || file.size > 2_000_000_000) throw new Error("Choose a demo file smaller than 2 GB.");
           // Bounded identity sample prevents accidentally resuming a different local file.
           const sample = await new Blob([file.slice(0,65536), file.slice(Math.max(0,file.size-65536))]).arrayBuffer();
           const fingerprint = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", sample))).map(b => b.toString(16).padStart(2,"0")).join("");
           const state = await api(`/api/demo-uploads/${jobId}`);
-          if (["QUEUED", "PROCESSING", "COMPLETED"].includes(state.status)) { patch(index, { progress: 100, message: "Already received by server." }); continue; }
+          if (["QUEUED", "PROCESSING", "COMPLETED"].includes(state.status)) { patch(index, { progress: 100, message: "Already received by server." }); return; }
           if (!["AWAITING_UPLOAD", "UPLOADING"].includes(state.status)) throw new Error("This upload was cancelled or failed. Open the match again in the extension.");
           let offset = state.offset as number;
           while (offset < file.size && !stop.current) {
@@ -107,11 +108,11 @@ export function DemoUploader() {
             offset = result.complete ? file.size : result.offset;
             patch(index, { progress: Math.round(offset/file.size*100), message: offset === file.size ? "Received. Queued for processing." : "Uploading…" });
           }
-          if (stop.current) patch(index, { message: "Paused. Click Upload / resume to continue." });
-          router.refresh();
+          if (stop.current && offset < file.size) patch(index, { message: "Paused. Click Upload / resume to continue." });
         } catch (e) { patch(index, { message: errorText(e) + " Select the same file and retry to resume." }); }
-      }
-      setMessage(stop.current ? "Uploads paused after the current chunk." : "Transfers finished. Check each file’s status below; processing continues on the server.");
+      }));
+      router.refresh();
+      setMessage(stop.current ? "Uploads stopped after their current chunks. Completed files continue processing on the server." : "Transfers finished. Check each file’s status below; processing continues on the server.");
     } finally { setBusy(false); }
   }
   async function cancel(job: Job) {
@@ -124,7 +125,7 @@ export function DemoUploader() {
   }
   return <section className="space-y-3 rounded border bg-white p-4" aria-label="Upload manually downloaded demos">
     <h2 className="text-lg font-semibold">Upload your demos</h2>
-    <p className="text-sm text-slate-600">Download on FACEIT, then upload the compressed files here. Keep this page open during transfer. Interrupted uploads resume when you select the same files again.</p>
+    <p className="text-sm text-slate-600">Download on FACEIT, then upload up to three compressed files simultaneously here. Keep this page open during transfer. Interrupted uploads resume when you select the same files again.</p>
     <div className="flex flex-wrap items-end gap-2">
       <label className="text-sm">Import access key<input className="ml-2 rounded border p-2" type="password" autoComplete="off" value={key} disabled={busy || loading} onChange={e => { setKey(e.target.value); setJobs([]); setChoices([]); }} /></label>
       <button className="rounded border px-3 py-2 disabled:opacity-50" disabled={busy || loading || key.trim().length < 24} onClick={() => void load()}>{loading ? "Loading…" : "Load pending matches"}</button>
