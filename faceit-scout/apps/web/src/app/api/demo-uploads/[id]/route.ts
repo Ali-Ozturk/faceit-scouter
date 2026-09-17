@@ -15,9 +15,14 @@ async function handle(request: Request, context: Context, action: "GET" | "PUT" 
   try {
     const { id } = await context.params;
     if (!z.string().uuid().safeParse(id).success) throw new UploadError("Invalid upload ID.");
-    // Bound each chunk before holding a transaction/connection during disk work.
-    const chunk = action === "PUT" ? await limitedBody(request, CHUNK_BYTES) : undefined;
     const result = await db.transaction(async tx => {
+      // Shared by upload requests, exclusive for the processor's entire lifecycle.
+      // Acquire before reading the body so parsing cannot overlap upload disk work.
+      if (action === "PUT") {
+        const [gate] = await tx.execute(sql`select pg_try_advisory_xact_lock_shared(hashtextextended('scout-transfer-processing', 0)) as locked`);
+        if (!gate.locked) throw new UploadError("A demo is processing. Upload will resume automatically when it finishes.", 503);
+      }
+
       // Workers hold this same job lock throughout parsing. Never queue HTTP
       // requests behind a long parse or a stalled disk write.
       const [lock] = await tx.execute(sql`select pg_try_advisory_xact_lock(hashtextextended(${id}, 0)) as locked`);
@@ -83,7 +88,7 @@ async function handle(request: Request, context: Context, action: "GET" | "PUT" 
         return { cancelled: true };
       }
       if (job.status === "WAITING_FOR_BATCH") return { complete: true, status: job.status };
-      const uploaded = await appendUpload(id, job.faceitMatchId, request, chunk!);
+      const uploaded = await appendUpload(id, job.faceitMatchId, request, await limitedBody(request, CHUNK_BYTES));
       if (uploaded.complete) return { ...uploaded, status: await stageCompleted(uploaded.filename) };
       await tx.update(demoDownload).set({ fileName: uploaded.filename, status: "UPLOADING", updatedAt: new Date() }).where(eq(demoDownload.id, id));
       return { ...uploaded, status: "UPLOADING" };

@@ -12,6 +12,7 @@ from scout_processor.database.repositories.imports import ImportRepository
 from scout_processor.database.repositories.matches import persist_parsed_demo
 from scout_processor.errors.exceptions import ErrorCode, ProcessingError
 from scout_processor.faceit_metadata import FaceitMetadataError, fetch_match_played_at
+from scout_processor.ingestion.transfer_gate import processing_phase
 from scout_processor.ingestion.checksum import sha256_file
 from scout_processor.ingestion.decompression import decompress_if_needed
 from scout_processor.ingestion.file_claiming import claim_file, move_file
@@ -25,6 +26,22 @@ def parse_demo_in_process(demo_path: str, checksum: str):
 
 
 async def process_file(
+    path: Path,
+    settings: Settings,
+    imports: ImportRepository,
+    session_factory: sessionmaker[Session],
+    parse_executor: Executor | None = None,
+    worker_name: str | None = None,
+    expected_map: str | None = None,
+) -> None:
+    if settings.url_imports_enabled:
+        async with processing_phase(session_factory):
+            await _process_file(path, settings, imports, session_factory, parse_executor, worker_name, expected_map)
+    else:
+        await _process_file(path, settings, imports, session_factory, parse_executor, worker_name, expected_map)
+
+
+async def _process_file(
     path: Path,
     settings: Settings,
     imports: ImportRepository,
