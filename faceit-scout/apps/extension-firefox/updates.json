@@ -3,9 +3,9 @@
     "faceit-scout-A@alihan": {
       "updates": [
         {
-          "version": "0.2.8",
-          "update_link": "https://github.com/Ali-Ozturk/faceit-scouter/releases/download/v0.2.8/faceit-scout-firefox-v0.2.8.xpi",
-          "update_hash": "sha256:e7179d51c3f4c654b3815308139c6c5e0ea4f77fb5483a10dce2c5066a12f3b7",
+          "version": "0.2.9",
+          "update_link": "https://github.com/Ali-Ozturk/faceit-scouter/releases/download/v0.2.9/faceit-scout-firefox-v0.2.9.xpi",
+          "update_hash": "sha256:9bb5eb49d2ef5a27862d2c99960342182102a25b60bedb172b9b48c24a81666b",
           "applications": {
             "gecko": {
               "strict_min_version": "121.0"
