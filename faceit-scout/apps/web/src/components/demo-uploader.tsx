@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { retryUploadRequest, sendChunkWithRecovery, UploadRequestError } from "@/lib/resumable-upload";
 
+import { uploadTwoAtATime } from "@/lib/upload-pool";
+
 type Job = { id: string; faceitMatchId: string; status: string; mapName?: string | null; matchPlayedAt?: string | null };
 type Choice = { file: File; jobId: string; progress: number; message: string };
 const CHUNK = 4 * 1024 * 1024;
@@ -89,10 +91,10 @@ export function DemoUploader() {
       setMessage("Assign each file to a different selected match."); return;
     }
     stop.current = false; setBusy(true);
-    setMessage("Uploading demos one at a time to reduce VPS load. Keep this page open during transfer.");
+    setMessage("Uploading up to two demos at a time. Processing waits for pending uploads. Keep this page open during transfer.");
     try {
-      for (const [index, { file, jobId }] of choices.entries()) {
-        if (stop.current) { patch(index, { message: "Paused. Click Upload / resume to continue." }); continue; }
+      await uploadTwoAtATime(choices, async ({ file, jobId }, index) => {
+        if (stop.current) { patch(index, { message: "Paused. Click Upload / resume to continue." }); return; }
         try {
           patch(index, { message: "Preparing upload…" });
           if (!/\.dem(?:\.zst|\.gz)?$/i.test(file.name) || file.size < 8 || file.size > 2_000_000_000) throw new Error("Choose a demo file smaller than 2 GB.");
@@ -102,7 +104,7 @@ export function DemoUploader() {
           const state = await retryUploadRequest({ request: () => api(`/api/demo-uploads/${jobId}`), shouldStop: () => stop.current,
             onRetry: attempt => patch(index, { message: `VPS temporarily unavailable. Retrying connection (${attempt})…` }),
           });
-          if (["WAITING_FOR_BATCH", "QUEUED", "PROCESSING", "COMPLETED"].includes(state.status)) { patch(index, { progress: 100, message: state.status === "WAITING_FOR_BATCH" ? "Received. Waiting for the other selected demos." : "Already received by server." }); continue; }
+          if (["WAITING_FOR_BATCH", "QUEUED", "PROCESSING", "COMPLETED"].includes(state.status)) { patch(index, { progress: 100, message: state.status === "WAITING_FOR_BATCH" ? "Received. Waiting for the other selected demos." : "Already received by server." }); return; }
           if (!["AWAITING_UPLOAD", "UPLOADING"].includes(state.status)) throw new Error("This upload was cancelled or failed. Open the match again in the extension.");
           let offset = state.offset as number;
           if (!Number.isSafeInteger(offset) || offset < 0 || offset >= file.size) throw new Error("Upload server returned an invalid resume offset.");
@@ -125,7 +127,7 @@ export function DemoUploader() {
           }
           if (stop.current && offset < file.size) patch(index, { message: "Paused. Click Upload / resume to continue." });
         } catch (e) { patch(index, { message: errorText(e) + " Click Upload / resume to retry with this file." }); }
-      }
+      });
       router.refresh();
       setMessage(stop.current ? "Uploads stopped after their current chunks. Completed files stay staged until the remaining uploads finish or are cancelled." : "Transfers stopped. Check each file’s status below; completed files process after the remaining reservations finish or are cancelled.");
     } finally { setBusy(false); }
@@ -140,7 +142,7 @@ export function DemoUploader() {
   }
   return <section className="space-y-3 rounded border bg-white p-4" aria-label="Upload manually downloaded demos">
     <h2 className="text-lg font-semibold">Upload your demos</h2>
-    <p className="text-sm text-slate-600">Download on FACEIT, then select up to three compressed files here. Files upload one at a time, with automatic retries during temporary outages. Keep this page open during transfer. Interrupted uploads resume when you select the same files again.</p>
+    <p className="text-sm text-slate-600">Download on FACEIT, then select up to three compressed files here. Files upload two at a time, with automatic retries during temporary outages. Keep this page open during transfer. Interrupted uploads resume when you select the same files again.</p>
     <div className="flex flex-wrap items-end gap-2">
       <label className="text-sm">Import access key<input className="ml-2 rounded border p-2" type="password" autoComplete="off" value={key} disabled={busy || loading} onChange={e => { setKey(e.target.value); setJobs([]); setChoices([]); }} /></label>
       <button className="rounded border px-3 py-2 disabled:opacity-50" disabled={busy || loading || key.trim().length < 24} onClick={() => void load()}>{loading ? "Loading…" : "Load pending matches"}</button>
