@@ -18,13 +18,21 @@ async function handle(request: Request, context: Context, action: "GET" | "PUT" 
     // Bound each chunk before holding a transaction/connection during disk work.
     const chunk = action === "PUT" ? await limitedBody(request, CHUNK_BYTES) : undefined;
     const result = await db.transaction(async tx => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`);
+      // Workers hold this same job lock throughout parsing. Never queue HTTP
+      // requests behind a long parse or a stalled disk write.
+      const [lock] = await tx.execute(sql`select pg_try_advisory_xact_lock(hashtextextended(${id}, 0)) as locked`);
+      if (!lock.locked) {
+        const [current] = await tx.select({ status: demoDownload.status }).from(demoDownload).where(eq(demoDownload.id, id));
+        if (action !== "DELETE" && current && ["QUEUED", "PROCESSING", "COMPLETED"].includes(current.status)) return { complete: true, status: current.status };
+        throw new UploadError("Upload is busy. Retrying shortly.", 503);
+      }
       const [job] = await tx.select().from(demoDownload).where(eq(demoDownload.id, id));
       if (!job) throw new UploadError("Upload not found.", 404);
       let batchLocked = false;
       async function lockBatch() {
         if (job.uploadBatchId && !batchLocked) {
-          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${job.uploadBatchId}, 0))`);
+          const [lock] = await tx.execute(sql`select pg_try_advisory_xact_lock(hashtextextended(${job.uploadBatchId}, 0)) as locked`);
+          if (!lock.locked) throw new UploadError("Upload batch is busy. Retrying shortly.", 503);
           batchLocked = true;
         }
       }
