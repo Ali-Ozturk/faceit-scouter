@@ -15,16 +15,18 @@ export async function retryUploadRequest<T>(options: {
   onRetry?: (attempt: number) => void;
   wait?: (milliseconds: number) => Promise<void>;
   maxRetries?: number;
+  shouldStop?: () => boolean;
 }) {
-  const maxRetries = options.maxRetries ?? 4;
+  const maxRetries = options.maxRetries ?? Infinity;
   const wait = options.wait ?? ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
   for (let retries = 0; ; retries += 1) {
+    if (options.shouldStop?.()) throw new Error("Upload paused. Click Upload / resume to continue.");
     try { return await options.request(); }
     catch (error) {
       if (!isRetryableUploadError(error) || retries >= maxRetries) throw error;
       const attempt = retries + 1;
       options.onRetry?.(attempt);
-      await wait(1000 * 2 ** retries);
+      await wait(Math.min(30000, 1000 * 2 ** Math.min(retries, 5)));
     }
   }
 }
@@ -37,24 +39,29 @@ export async function sendChunkWithRecovery(options: {
   onRetry?: (attempt: number) => void;
   wait?: (milliseconds: number) => Promise<void>;
   maxRetries?: number;
+  shouldStop?: () => boolean;
 }) {
   let retries = 0;
 
   while (true) {
+    if (options.shouldStop?.()) throw new Error("Upload paused. Click Upload / resume to continue.");
     try {
       return await options.send();
     } catch (error) {
+      if (!isRetryableUploadError(error) && !(error instanceof UploadRequestError && error.status === 409)) throw error;
+      if (options.shouldStop?.()) throw new Error("Upload paused. Click Upload / resume to continue.");
       const state = await options.inspect().catch(() => null);
       if (state && ["WAITING_FOR_BATCH", "QUEUED", "PROCESSING", "COMPLETED"].includes(state.status)) {
         return { complete: true, offset: options.end, status: state.status };
       }
+      if (state && !["AWAITING_UPLOAD", "UPLOADING"].includes(state.status)) throw new Error("This upload was cancelled or failed. Open the match again in the extension.");
       if (state && Number.isSafeInteger(state.offset) && state.offset! > options.offset) {
         return { complete: false, offset: state.offset };
       }
-      if (!isRetryableUploadError(error) || retries >= (options.maxRetries ?? 4)) throw error;
+      if (!isRetryableUploadError(error) || retries >= (options.maxRetries ?? Infinity)) throw error;
       retries += 1;
       options.onRetry?.(retries);
-      await (options.wait ?? ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds))))(1000 * 2 ** (retries - 1));
+      await (options.wait ?? ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds))))(Math.min(30000, 1000 * 2 ** Math.min(retries - 1, 5)));
     }
   }
 }

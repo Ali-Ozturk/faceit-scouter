@@ -50,7 +50,7 @@ services:
       FAILED_DIRECTORY: /data/failed
       DECOMPRESSED_DIRECTORY: /data/decompressed
       TEMPORARY_DIRECTORY: /data/runtime/temporary
-      PROCESSOR_CONCURRENCY: ${PROCESSOR_CONCURRENCY:-3}
+      PROCESSOR_CONCURRENCY: ${PROCESSOR_CONCURRENCY:-1}
       URL_IMPORTS_ENABLED: "true"
       KEEP_COMPLETED_DEMOS: ${KEEP_COMPLETED_DEMOS:-false}
       DEMO_DOWNLOAD_HOSTS: ${DEMO_DOWNLOAD_HOSTS:-demos-europe-central-faceit-cdn.s3.eu-central-003.backblazeb2.com,demos-us-east-faceit-cdn.s3.us-east-005.backblazeb2.com}
